@@ -3,6 +3,11 @@
 .env.local
 .env.production
 
+# Sensitive files
+keys/key.txt
+*.key
+*.token
+
 # Python
 __pycache__/
 *.py[cod]
