@@ -10,7 +10,7 @@ import time
 from typing import Dict, Any, Optional
 import requests
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
 import uvicorn
 
 app = FastAPI(title="TDS Project 1 - LLM Code Deployment")
@@ -603,8 +603,76 @@ async def handle_task(request: Request):
 
 @app.get("/")
 async def root():
-    """Health check endpoint."""
-    return {"message": "TDS Project 1 - LLM Code Deployment API", "status": "running"}
+    """API documentation landing page."""
+    html_content = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>TDS Project 1 - LLM Code Deployment API</title>
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    </head>
+    <body>
+        <div class="container mt-5">
+            <h1>🚀 TDS Project 1 - LLM Code Deployment API</h1>
+            <p class="lead">FastAPI application for automated GitHub repository creation and deployment</p>
+            
+            <div class="alert alert-success">
+                <strong>Status:</strong> Running ✅
+            </div>
+            
+            <h2>📡 Endpoints</h2>
+            <ul class="list-group mb-4">
+                <li class="list-group-item">
+                    <strong>POST /handle_task</strong> - Main endpoint for handling deployment tasks
+                </li>
+                <li class="list-group-item">
+                    <strong>GET /health</strong> - Health check endpoint
+                </li>
+                <li class="list-group-item">
+                    <strong>GET /docs</strong> - Interactive API documentation (Swagger UI)
+                </li>
+                <li class="list-group-item">
+                    <strong>GET /redoc</strong> - Alternative API documentation (ReDoc)
+                </li>
+            </ul>
+            
+            <h2>🔧 Usage</h2>
+            <p>Send a POST request to <code>/handle_task</code> with the following JSON payload:</p>
+            <pre class="bg-light p-3"><code>{
+  "email": "your-email@example.com",
+  "secret": "your-app-secret",
+  "task": "task-name",
+  "round": 1,
+  "nonce": "unique-nonce",
+  "brief": "task description",
+  "evaluation_url": "https://evaluation-endpoint.com",
+  "attachments": []
+}</code></pre>
+            
+            <h2>📚 Documentation</h2>
+            <div class="btn-group mb-4" role="group">
+                <a href="/docs" class="btn btn-primary">Swagger UI</a>
+                <a href="/redoc" class="btn btn-secondary">ReDoc</a>
+                <a href="/health" class="btn btn-info">Health Check</a>
+            </div>
+            
+            <h2>✨ Supported Tasks</h2>
+            <ul>
+                <li><strong>sum-of-sales</strong> - Generate sales summary with Bootstrap table</li>
+                <li><strong>markdown-to-html</strong> - Markdown renderer with syntax highlighting</li>
+                <li><strong>github-user-created</strong> - GitHub user account creation date checker</li>
+            </ul>
+            
+            <footer class="mt-5 text-muted">
+                <p>TDS Project 1 | FastAPI + GitHub API | 2025</p>
+            </footer>
+        </div>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
 
 @app.get("/health")
 async def health():
