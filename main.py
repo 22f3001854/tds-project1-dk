@@ -266,6 +266,7 @@ Return ONLY the complete HTML file. No explanations."""
             lines = html_content.split('\n')
             html_content = '\n'.join(lines[1:-1]) if len(lines) > 2 else html_content
         
+        print(f"✓ LLM successfully generated HTML content for task type: {task_type}")
         return html_content
         
     except Exception as e:
