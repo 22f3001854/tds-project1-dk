@@ -580,13 +580,13 @@ async def handle_task(request: Request):
         if not success:
             raise HTTPException(status_code=500, detail="Failed to post evaluation after multiple attempts")
         
-        return JSONResponse(content={{
+        return JSONResponse(content={
             "status": "success",
             "repo_url": repo_url,
             "pages_url": pages_url,
             "commit_sha": latest_commit_sha,
             "round": round_num
-        }})
+        })
         
     except HTTPException:
         raise
