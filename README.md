@@ -7,12 +7,15 @@ A FastAPI application that handles GitHub repository creation, file uploads, and
 - **POST `/handle_task`**: Main endpoint for processing TDS server requests
 - **GitHub Integration**: Automatic repository creation and file uploads
 - **GitHub Pages**: Automatic setup and deployment
+- **🆕 LLM-Powered Content Generation**: Dynamic HTML/JS generation using GPT-4o-mini
+- **Graceful Fallback**: Uses hardcoded templates if LLM is unavailable
 - **Three Site Generators**:
-  - `sum-of-sales`: Interactive sales data visualization
+  - `sum-of-sales`: Interactive sales data visualization (LLM-enhanced)
   - `markdown-to-html`: Markdown to HTML converter with syntax highlighting
   - `github-user-created`: GitHub user account age checker
 - **Exponential Backoff**: Reliable evaluation posting with retry logic
 - **Security**: APP_SECRET verification for all requests
+- **Pydantic Validation**: Automatic request validation and OpenAPI docs
 
 ## Prerequisites
 
@@ -44,6 +47,15 @@ Create a `.env` file or export variables:
 export APP_SECRET="your-secret-key"
 export GITHUB_TOKEN="your-github-token"
 export GITHUB_OWNER="your-github-username"
+
+# Optional: For LLM-powered content generation
+export OPENAI_API_KEY="sk-proj-xxxxxxxxxxxx"  # Optional - falls back to templates if not set
+```
+
+**Note**: You can use the `start_server.sh` script which automatically loads variables from `.env` file:
+```bash
+# Create .env file with your actual values (see .env.example)
+./start_server.sh
 ```
 
 ### 5. Run the Application
@@ -86,6 +98,30 @@ The API will be available at `http://localhost:7860`
 }
 ```
 
+## 🤖 LLM Integration (NEW!)
+
+### Dynamic Content Generation
+The application now supports **dynamic HTML/JavaScript generation** using OpenAI's GPT-4o-mini model. When enabled, the LLM generates custom code based on your task brief instead of using hardcoded templates.
+
+### How It Works
+1. **With OPENAI_API_KEY set**: The app sends your task brief to GPT-4o-mini, which generates custom HTML/JS code tailored to your requirements
+2. **Without OPENAI_API_KEY**: The app automatically falls back to using hardcoded, proven templates
+
+### Benefits
+- ✨ **Customized output** based on specific task requirements
+- 🎨 **Creative implementations** that adapt to your brief
+- 🛡️ **Safe fallback** ensures the app always works, even without LLM access
+- 💰 **Cost-efficient** using GPT-4o-mini model
+
+### Setup
+```bash
+# Optional: Add to your .env file for LLM-powered generation
+export OPENAI_API_KEY="sk-proj-your-openai-api-key-here"
+```
+
+### Example
+When you send a brief like: `"Create a beautiful dashboard showing sum of sales with Bootstrap styling"`, the LLM will generate custom HTML that specifically addresses those requirements.
+
 ## Deployment on Hugging Face Spaces
 
 ### 1. Create New Space
@@ -114,11 +150,20 @@ app_port: 7860
 ---
 ```
 
-### 4. Set Environment Variables
-In Space settings, add:
-- `APP_SECRET`: Your secret key
-- `GITHUB_TOKEN`: Your GitHub token
-- `GITHUB_OWNER`: Your GitHub username
+### 4. Set Environment Variables (IMPORTANT!)
+In Space settings → Variables and secrets, add these **Secrets**:
+
+**Required:**
+- `APP_SECRET`: Your application secret key
+- `GITHUB_TOKEN`: Your GitHub Personal Access Token (with repo permissions)
+- `GITHUB_OWNER`: Your GitHub username (e.g., `22f3001854`)
+
+**Optional (for LLM features):**
+- `OPENAI_API_KEY`: Your OpenAI API key (starts with `sk-`)
+  - If not set, app uses hardcoded templates
+  - If set, enables dynamic LLM-generated content
+
+📖 **Detailed guide**: See [HF_DEPLOYMENT.md](./HF_DEPLOYMENT.md) for step-by-step instructions
 
 ### 5. Create Dockerfile
 ```dockerfile
