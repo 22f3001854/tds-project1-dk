@@ -48,8 +48,8 @@ export APP_SECRET="your-secret-key"
 export GITHUB_TOKEN="your-github-token"
 export GITHUB_OWNER="your-github-username"
 
-# Optional: For LLM-powered content generation
-export OPENAI_API_KEY="sk-proj-xxxxxxxxxxxx"  # Optional - falls back to templates if not set
+# Optional: For LLM-powered content generation via AI Pipe
+export AIPIPE_TOKEN="your-aipipe-token"  # Optional - falls back to templates if not set
 ```
 
 **Note**: You can use the `start_server.sh` script which automatically loads variables from `.env` file:
@@ -101,23 +101,28 @@ The API will be available at `http://localhost:7860`
 ## 🤖 LLM Integration (NEW!)
 
 ### Dynamic Content Generation
-The application now supports **dynamic HTML/JavaScript generation** using OpenAI's GPT-4o-mini model. When enabled, the LLM generates custom code based on your task brief instead of using hardcoded templates.
+The application now supports **dynamic HTML/JavaScript generation** using AI Pipe, a proxy service that provides access to various LLM models including GPT-4o-mini.
 
 ### How It Works
-1. **With OPENAI_API_KEY set**: The app sends your task brief to GPT-4o-mini, which generates custom HTML/JS code tailored to your requirements
-2. **Without OPENAI_API_KEY**: The app automatically falls back to using hardcoded, proven templates
+1. **With AIPIPE_TOKEN set**: The app sends your task brief to GPT-4o-mini via AI Pipe, which generates custom HTML/JS code tailored to your requirements
+2. **Without AIPIPE_TOKEN**: The app automatically falls back to using hardcoded, proven templates
 
 ### Benefits
 - ✨ **Customized output** based on specific task requirements
 - 🎨 **Creative implementations** that adapt to your brief
 - 🛡️ **Safe fallback** ensures the app always works, even without LLM access
-- 💰 **Cost-efficient** using GPT-4o-mini model
+- 💰 **Cost-efficient** using GPT-4o-mini model via AI Pipe
 
 ### Setup
 ```bash
 # Optional: Add to your .env file for LLM-powered generation
-export OPENAI_API_KEY="sk-proj-your-openai-api-key-here"
+export AIPIPE_TOKEN="your-aipipe-token-here"
 ```
+
+**AI Pipe Configuration:**
+- Base URL: `https://aipipe.org/openai/v1`
+- Model: `openai/gpt-4o-mini` (AI Pipe format with prefix)
+- Documentation: https://aipipe.org/docs
 
 ### Example
 When you send a brief like: `"Create a beautiful dashboard showing sum of sales with Bootstrap styling"`, the LLM will generate custom HTML that specifically addresses those requirements.
@@ -159,9 +164,9 @@ In Space settings → Variables and secrets, add these **Secrets**:
 - `GITHUB_OWNER`: Your GitHub username (e.g., `22f3001854`)
 
 **Optional (for LLM features):**
-- `OPENAI_API_KEY`: Your OpenAI API key (starts with `sk-`)
+- `AIPIPE_TOKEN`: Your AI Pipe token
   - If not set, app uses hardcoded templates
-  - If set, enables dynamic LLM-generated content
+  - If set, enables dynamic LLM-generated content via AI Pipe
 
 📖 **Detailed guide**: See [HF_DEPLOYMENT.md](./HF_DEPLOYMENT.md) for step-by-step instructions
 

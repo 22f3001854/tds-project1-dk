@@ -22,23 +22,27 @@ app = FastAPI(title="TDS Project 1 - LLM Code Deployment")
 APP_SECRET = os.getenv("APP_SECRET")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GITHUB_OWNER = os.getenv("GITHUB_OWNER")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+AIPIPE_TOKEN = os.getenv("AIPIPE_TOKEN")  # AI Pipe token (replaces OPENAI_API_KEY)
 
 if not all([APP_SECRET, GITHUB_TOKEN, GITHUB_OWNER]):
     raise RuntimeError("Missing required environment variables: APP_SECRET, GITHUB_TOKEN, GITHUB_OWNER")
 
-# OpenAI client (optional - will use hardcoded templates if not available)
+# OpenAI client configured for AI Pipe (optional - will use hardcoded templates if not available)
 openai_client = None
-if OPENAI_API_KEY:
+if AIPIPE_TOKEN:
     try:
-        openai_client = OpenAI(api_key=OPENAI_API_KEY)
-        print("✓ OpenAI client initialized successfully - LLM generation enabled")
+        # Configure OpenAI client to use AI Pipe proxy
+        openai_client = OpenAI(
+            api_key=AIPIPE_TOKEN,
+            base_url="https://aipipe.org/openai/v1"  # AI Pipe base URL for OpenAI models
+        )
+        print("✓ AI Pipe client initialized successfully - LLM generation enabled")
     except Exception as e:
-        print(f"Warning: Failed to initialize OpenAI client: {e}")
+        print(f"Warning: Failed to initialize AI Pipe client: {e}")
         print("Falling back to hardcoded templates.")
         openai_client = None
 else:
-    print("Warning: OPENAI_API_KEY not set. Using hardcoded templates instead of LLM generation.")
+    print("Warning: AIPIPE_TOKEN not set. Using hardcoded templates instead of LLM generation.")
 
 GITHUB_API_BASE = "https://api.github.com"
 HEADERS = {
@@ -246,7 +250,7 @@ Return ONLY the complete HTML file. No explanations."""
 
     try:
         response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",  # Using gpt-4o-mini for cost efficiency
+            model="openai/gpt-4o-mini",  # AI Pipe format: prefix with 'openai/'
             messages=[
                 {"role": "system", "content": "You are an expert web developer. Generate complete, working HTML files with embedded JavaScript. Return only the HTML code, no explanations or markdown code blocks."},
                 {"role": "user", "content": prompt}

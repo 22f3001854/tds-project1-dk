@@ -20,10 +20,23 @@ For the application to work on Hugging Face Spaces, you need to configure the fo
 
 ### Optional Secrets
 
-4. **OPENAI_API_KEY** - OpenAI API key for LLM-based content generation
-   - Name: `OPENAI_API_KEY`
-   - Value: Your OpenAI API key (starts with `sk-`)
+4. **AIPIPE_TOKEN** - AI Pipe token for LLM-based content generation
+   - Name: `AIPIPE_TOKEN`
+   - Value: Your AI Pipe token (get from https://aipipe.org)
    - **Note**: If not provided, the app will use hardcoded HTML templates
+
+## AI Pipe Configuration
+
+This project uses **AI Pipe** as a proxy to access LLM models:
+
+- **Base URL**: `https://aipipe.org/openai/v1`
+- **Model**: `openai/gpt-4o-mini` (AI Pipe format with prefix)
+- **Documentation**: https://aipipe.org/docs
+
+AI Pipe provides:
+- Cost-effective access to multiple LLM providers
+- Unified API interface (OpenAI-compatible)
+- No need for direct OpenAI API keys
 
 ## Deployment Steps
 
@@ -52,13 +65,14 @@ For the application to work on Hugging Face Spaces, you need to configure the fo
 
 ## Troubleshooting
 
-### OpenAI Client Issues
+### AI Pipe Client Issues
 If you see warnings about Pydantic V1 compatibility, this is expected with Python 3.14. The app will still work correctly.
 
 ### LLM Generation Not Working
-- Verify `OPENAI_API_KEY` is set correctly in HF Secrets
-- Check the app logs - it should show "✓ OpenAI client initialized successfully"
-- If the key is invalid, the app will fall back to hardcoded templates
+- Verify `AIPIPE_TOKEN` is set correctly in HF Secrets
+- Check the app logs - it should show "✓ AI Pipe client initialized successfully"
+- If the token is invalid, the app will fall back to hardcoded templates
+- Visit https://aipipe.org to get your token
 
 ### Missing Environment Variables
 If the app fails to start with "Missing required environment variables", ensure all **Required Secrets** are configured in HF Space settings.
