@@ -101,17 +101,18 @@ The API will be available at `http://localhost:7860`
 ## 🤖 LLM Integration (NEW!)
 
 ### Dynamic Content Generation
-The application now supports **dynamic HTML/JavaScript generation** using AI Pipe, a proxy service that provides access to various LLM models including GPT-4o-mini.
+The application now supports **dynamic HTML/JavaScript generation** using AI Pipe with the gpt-4.1-nano model.
 
 ### How It Works
-1. **With AIPIPE_TOKEN set**: The app sends your task brief to GPT-4o-mini via AI Pipe, which generates custom HTML/JS code tailored to your requirements
+1. **With AIPIPE_TOKEN set**: The app sends your task brief to gpt-4.1-nano via AI Pipe, which generates custom HTML/JS code tailored to your requirements
 2. **Without AIPIPE_TOKEN**: The app automatically falls back to using hardcoded, proven templates
 
 ### Benefits
 - ✨ **Customized output** based on specific task requirements
 - 🎨 **Creative implementations** that adapt to your brief
 - 🛡️ **Safe fallback** ensures the app always works, even without LLM access
-- 💰 **Cost-efficient** using GPT-4o-mini model via AI Pipe
+- 💰 **Cost-efficient** using gpt-4.1-nano model via AI Pipe
+- ⚡ **Fast** - optimized for quick responses
 
 ### Setup
 ```bash
@@ -121,7 +122,7 @@ export AIPIPE_TOKEN="your-aipipe-token-here"
 
 **AI Pipe Configuration:**
 - Base URL: `https://aipipe.org/openai/v1`
-- Model: `openai/gpt-4o-mini` (AI Pipe format with prefix)
+- Model: `gpt-4.1-nano` (fast and cost-efficient)
 - Documentation: https://aipipe.org/docs
 
 ### Example

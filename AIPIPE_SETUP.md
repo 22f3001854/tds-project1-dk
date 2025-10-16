@@ -48,25 +48,24 @@ openai_client = OpenAI(
     base_url="https://aipipe.org/openai/v1"  # AI Pipe proxy URL
 )
 
-# Model format uses provider prefix
-model = "openai/gpt-4o-mini"  # Format: provider/model-name
+# Model name for AI Pipe
+model = "gpt-4.1-nano"  # Fast and cost-efficient model
 ```
+
+**Note**: AI Pipe uses `gpt-4.1-nano` which is optimized for speed and cost-efficiency.
 
 ## Available Models via AI Pipe
 
-You can use various models through AI Pipe:
+The application uses **gpt-4.1-nano** which is:
+- ✅ Fast response times
+- ✅ Cost-efficient
+- ✅ Optimized for code generation
+- ✅ Available through AI Pipe
 
-### OpenAI Models:
-- `openai/gpt-4o-mini` (current - cost-efficient)
-- `openai/gpt-4o`
-- `openai/gpt-3.5-turbo`
-
-### Other Providers (via OpenRouter):
-- `google/gemini-2.0-flash-lite`
-- `anthropic/claude-3-haiku`
-- And many more...
-
-To switch models, just change the model name in `main.py` line 253.
+Other models you could try (update in `main.py` line 253):
+- `gpt-4.1-nano` (current - recommended)
+- `gpt-3.5-turbo`
+- Check AI Pipe documentation for more options
 
 ## Benefits
 

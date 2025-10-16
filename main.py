@@ -250,7 +250,7 @@ Return ONLY the complete HTML file. No explanations."""
 
     try:
         response = openai_client.chat.completions.create(
-            model="openai/gpt-4o-mini",  # AI Pipe format: prefix with 'openai/'
+            model="gpt-4.1-nano",  # AI Pipe model
             messages=[
                 {"role": "system", "content": "You are an expert web developer. Generate complete, working HTML files with embedded JavaScript. Return only the HTML code, no explanations or markdown code blocks."},
                 {"role": "user", "content": prompt}
