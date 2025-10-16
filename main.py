@@ -5,6 +5,7 @@ Uses LLM to dynamically generate HTML/JavaScript content based on task briefs
 """
 
 import os
+import sys
 import json
 import base64
 import time
@@ -36,13 +37,12 @@ if AIPIPE_TOKEN:
             api_key=AIPIPE_TOKEN,
             base_url="https://aipipe.org/openai/v1"  # AI Pipe base URL for OpenAI models
         )
-        print("✓ AI Pipe client initialized successfully - LLM generation enabled")
     except Exception as e:
         print(f"Warning: Failed to initialize AI Pipe client: {e}")
         print("Falling back to hardcoded templates.")
         openai_client = None
 else:
-    print("Warning: AIPIPE_TOKEN not set. Using hardcoded templates instead of LLM generation.")
+    openai_client = None
 
 GITHUB_API_BASE = "https://api.github.com"
 HEADERS = {
@@ -50,6 +50,20 @@ HEADERS = {
     "Accept": "application/vnd.github.v3+json",
     "User-Agent": "tds-project1-dk"
 }
+
+@app.on_event("startup")
+async def startup_event():
+    """Log startup information"""
+    sys.stdout.flush()
+    if openai_client:
+        print("-" * 80, flush=True)
+        print("✓ AI Pipe client initialized successfully - LLM generation enabled", flush=True)
+        print("-" * 80, flush=True)
+    else:
+        print("-" * 80, flush=True)
+        print("⚠ AI Pipe client not available - Using template fallbacks", flush=True)
+        print("-" * 80, flush=True)
+    sys.stdout.flush()
 
 # Pydantic models for request validation
 class Attachment(BaseModel):
@@ -266,7 +280,9 @@ Return ONLY the complete HTML file. No explanations."""
             lines = html_content.split('\n')
             html_content = '\n'.join(lines[1:-1]) if len(lines) > 2 else html_content
         
+        print("-" * 80)
         print(f"✓ LLM successfully generated HTML content for task type: {task_type}")
+        print("-" * 80)
         return html_content
         
     except Exception as e:
