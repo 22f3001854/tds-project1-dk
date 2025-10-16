@@ -594,23 +594,23 @@ async def handle_task(request: Request):
         error_detail = f"Internal server error: {str(e)}"
         return JSONResponse(
             status_code=500,
-            content={{"error": error_detail}}
+            content={"error": error_detail}
         )
 
 @app.get("/")
 async def root():
     """Health check endpoint."""
-    return {{"message": "TDS Project 1 - LLM Code Deployment API", "status": "running"}}
+    return {"message": "TDS Project 1 - LLM Code Deployment API", "status": "running"}
 
 @app.get("/health")
 async def health():
     """Detailed health check."""
-    return {{
+    return {
         "status": "healthy",
         "github_owner": GITHUB_OWNER,
         "has_github_token": bool(GITHUB_TOKEN),
         "has_app_secret": bool(APP_SECRET)
-    }}
+    }
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=7860)
