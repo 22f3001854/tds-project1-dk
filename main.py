@@ -141,7 +141,11 @@ def generate_site(task: str, brief: str, round_num: int, attachments: Optional[D
     """
     files = {}
     
-    if brief == "sum-of-sales":
+    # Determine task type from task identifier or brief
+    task_lower = task.lower()
+    brief_lower = brief.lower()
+    
+    if "sum-of-sales" in task_lower or "sum-of-sales" in brief_lower:
         # Generate sum-of-sales HTML
         html_content = generate_sum_of_sales_html()
         files["index.html"] = html_content.encode("utf-8")
@@ -155,7 +159,7 @@ Product D,1200
 Product E,900"""
         files["data.csv"] = csv_content.encode("utf-8")
         
-    elif brief == "markdown-to-html":
+    elif "markdown-to-html" in task_lower or "markdown-to-html" in brief_lower or "markdown" in task_lower:
         # Generate markdown-to-html converter
         html_content = generate_markdown_to_html()
         files["index.html"] = html_content.encode("utf-8")
@@ -174,7 +178,7 @@ def hello_world():
 ```"""
         files["input.md"] = md_content.encode("utf-8")
         
-    elif brief == "github-user-created":
+    elif "github-user" in task_lower or "github-user" in brief_lower:
         # Generate GitHub user creation date checker
         html_content = generate_github_user_created_html(task)
         files["index.html"] = html_content.encode("utf-8")
