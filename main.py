@@ -7,10 +7,11 @@ import os
 import json
 import base64
 import time
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import requests
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, HTMLResponse
+from pydantic import BaseModel, Field
 import uvicorn
 
 app = FastAPI(title="TDS Project 1 - LLM Code Deployment")
@@ -29,6 +30,23 @@ HEADERS = {
     "Accept": "application/vnd.github.v3+json",
     "User-Agent": "tds-project1-dk"
 }
+
+# Pydantic models for request validation
+class Attachment(BaseModel):
+    """Attachment data model"""
+    name: str = Field(..., description="Attachment filename")
+    url: str = Field(..., description="Data URL or HTTP URL to attachment content")
+
+class TaskRequest(BaseModel):
+    """Request model for /handle_task endpoint"""
+    email: str = Field(..., description="User email address")
+    secret: str = Field(..., description="Shared secret for authentication")
+    task: str = Field(..., description="Task identifier (e.g., 'sum-of-sales-001')")
+    round: int = Field(..., description="Round number (1 or 2)", ge=1, le=2)
+    nonce: str = Field(..., description="Unique nonce for this request")
+    brief: str = Field(..., description="Task description/brief (e.g., 'sum-of-sales', 'markdown-to-html')")
+    evaluation_url: str = Field(..., description="URL to POST evaluation results")
+    attachments: Optional[List[Attachment]] = Field(default=[], description="Optional list of attachments")
 
 def create_or_get_repo(name: str) -> Dict[str, Any]:
     """
@@ -508,7 +526,7 @@ def post_evaluation_with_backoff(url: str, data: Dict[str, Any], max_retries: in
     return False
 
 @app.post("/handle_task")
-async def handle_task(request: Request):
+async def handle_task(payload: TaskRequest):
     """
     Main endpoint to handle TDS server requests.
     
@@ -520,30 +538,18 @@ async def handle_task(request: Request):
     - Posts evaluation response
     """
     try:
-        # Parse request body
-        try:
-            body = await request.json()
-        except Exception:
-            raise HTTPException(status_code=400, detail="Invalid JSON in request body")
-        
-        # Verify required fields
-        required_fields = ["secret", "email", "task", "round", "nonce", "evaluation_url", "brief"]
-        missing_fields = [field for field in required_fields if field not in body]
-        if missing_fields:
-            raise HTTPException(status_code=400, detail=f"Missing required fields: {missing_fields}")
-        
         # Verify secret
-        if body["secret"] != APP_SECRET:
+        if payload.secret != APP_SECRET:
             raise HTTPException(status_code=401, detail="Invalid secret")
         
         # Extract task data
-        email = body["email"]
-        task = body["task"]
-        round_num = body["round"]
-        nonce = body["nonce"]
-        evaluation_url = body["evaluation_url"]
-        brief = body["brief"]
-        attachments = body.get("attachments", {})
+        email = payload.email
+        task = payload.task
+        round_num = payload.round
+        nonce = payload.nonce
+        evaluation_url = payload.evaluation_url
+        brief = payload.brief
+        attachments = payload.attachments or []
         
         # Generate repository name
         repo_name = f"tds-project1-{task}"
