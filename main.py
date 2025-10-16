@@ -1,6 +1,7 @@
 """
 FastAPI LLM Code Deployment Application
 Handles GitHub repository creation, file uploads, and GitHub Pages setup
+Uses LLM to dynamically generate HTML/JavaScript content based on task briefs
 """
 
 import os
@@ -13,6 +14,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, HTMLResponse
 from pydantic import BaseModel, Field
 import uvicorn
+from openai import OpenAI
 
 app = FastAPI(title="TDS Project 1 - LLM Code Deployment")
 
@@ -20,9 +22,23 @@ app = FastAPI(title="TDS Project 1 - LLM Code Deployment")
 APP_SECRET = os.getenv("APP_SECRET")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GITHUB_OWNER = os.getenv("GITHUB_OWNER")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 if not all([APP_SECRET, GITHUB_TOKEN, GITHUB_OWNER]):
     raise RuntimeError("Missing required environment variables: APP_SECRET, GITHUB_TOKEN, GITHUB_OWNER")
+
+# OpenAI client (optional - will use hardcoded templates if not available)
+openai_client = None
+if OPENAI_API_KEY:
+    try:
+        openai_client = OpenAI(api_key=OPENAI_API_KEY)
+        print("✓ OpenAI client initialized successfully - LLM generation enabled")
+    except Exception as e:
+        print(f"Warning: Failed to initialize OpenAI client: {e}")
+        print("Falling back to hardcoded templates.")
+        openai_client = None
+else:
+    print("Warning: OPENAI_API_KEY not set. Using hardcoded templates instead of LLM generation.")
 
 GITHUB_API_BASE = "https://api.github.com"
 HEADERS = {
@@ -144,6 +160,114 @@ def put_file(name: str, path: str, content_bytes: bytes, message: str) -> Dict[s
     
     return response.json()
 
+def generate_content_with_llm(task: str, brief: str, task_type: str) -> str:
+    """
+    Use LLM to generate HTML/JavaScript content dynamically based on the brief.
+    
+    Args:
+        task: Task identifier
+        brief: Task description/brief
+        task_type: Type of task (sum-of-sales, markdown-to-html, github-user-created)
+        
+    Returns:
+        Generated HTML content as string
+    """
+    if not openai_client:
+        # Fallback to hardcoded templates if no LLM available
+        return None
+    
+    # Construct LLM prompt based on task type
+    if "sum-of-sales" in task_type:
+        prompt = f"""Generate a complete, self-contained HTML file for a sales summary application.
+
+Requirements:
+- Title: "Sales Summary"
+- Use Bootstrap 5 CDN for styling
+- Display total sales in an element with id="total-sales"
+- Show a Bootstrap table with sales data
+- Include JavaScript that:
+  1. Fetches data from 'data.csv' file
+  2. Parses the CSV (format: item,sales)
+  3. Calculates total sales and displays in #total-sales
+  4. Renders all items in a Bootstrap table
+
+Additional requirements from brief: {brief}
+
+Return ONLY the complete HTML file (<!DOCTYPE html> through </html>). No explanations."""
+
+    elif "markdown" in task_type:
+        prompt = f"""Generate a complete, self-contained HTML file for a Markdown to HTML converter.
+
+Requirements:
+- Title: "Markdown to HTML Converter"
+- Use Bootstrap 5 CDN for styling
+- Include marked.js CDN for markdown parsing
+- Include highlight.js CDN for syntax highlighting
+- Load and render 'input.md' file or accept ?url parameter
+- Display rendered HTML in a container
+
+Additional requirements from brief: {brief}
+
+Return ONLY the complete HTML file. No explanations."""
+
+    elif "github-user" in task_type:
+        # Extract seed from task name if present
+        seed = task.split('-')[-1] if '-' in task else "default"
+        prompt = f"""Generate a complete, self-contained HTML file for a GitHub user account age checker.
+
+Requirements:
+- Title: "GitHub User Account Age"
+- Use Bootstrap 5 CDN for styling
+- Include a form with id="github-user-{seed}"
+- Form should have an input for GitHub username and submit button
+- On submit, fetch user data from GitHub API: https://api.github.com/users/{{username}}
+- Display account creation date from 'created_at' field
+- Calculate and display account age in years and days
+- Show results in Bootstrap alert
+
+Additional requirements from brief: {brief}
+
+Return ONLY the complete HTML file. No explanations."""
+
+    else:
+        prompt = f"""Generate a complete, self-contained HTML file based on this brief:
+
+{brief}
+
+Task: {task}
+
+Requirements:
+- Use Bootstrap 5 CDN for styling
+- Include all necessary JavaScript inline
+- Make it fully functional and self-contained
+- Follow best practices for HTML5
+
+Return ONLY the complete HTML file. No explanations."""
+
+    try:
+        response = openai_client.chat.completions.create(
+            model="gpt-4o-mini",  # Using gpt-4o-mini for cost efficiency
+            messages=[
+                {"role": "system", "content": "You are an expert web developer. Generate complete, working HTML files with embedded JavaScript. Return only the HTML code, no explanations or markdown code blocks."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,
+            max_tokens=2000
+        )
+        
+        html_content = response.choices[0].message.content.strip()
+        
+        # Remove markdown code fences if present
+        if html_content.startswith("```"):
+            lines = html_content.split('\n')
+            html_content = '\n'.join(lines[1:-1]) if len(lines) > 2 else html_content
+        
+        return html_content
+        
+    except Exception as e:
+        print(f"LLM generation failed: {e}. Falling back to templates.")
+        return None
+
 def generate_site(task: str, brief: str, round_num: int, attachments: Optional[Dict] = None) -> Dict[str, bytes]:
     """
     Generate static site files based on task brief.
@@ -163,12 +287,32 @@ def generate_site(task: str, brief: str, round_num: int, attachments: Optional[D
     task_lower = task.lower()
     brief_lower = brief.lower()
     
+    # Try LLM generation first
+    task_type = ""
     if "sum-of-sales" in task_lower or "sum-of-sales" in brief_lower:
-        # Generate sum-of-sales HTML
-        html_content = generate_sum_of_sales_html()
+        task_type = "sum-of-sales"
+    elif "markdown-to-html" in task_lower or "markdown-to-html" in brief_lower or "markdown" in task_lower:
+        task_type = "markdown-to-html"
+    elif "github-user" in task_lower or "github-user" in brief_lower:
+        task_type = "github-user-created"
+    
+    # Generate HTML using LLM (if available) or fallback to templates
+    html_content = None
+    if openai_client and task_type:
+        html_content = generate_content_with_llm(task, brief, task_type)
+    
+    # If LLM generation failed or not available, use hardcoded templates
+    if not html_content:
+        if task_type == "sum-of-sales":
+            # Generate sum-of-sales HTML
+            html_content = generate_sum_of_sales_html()
+    
+    # Set HTML content for all task types
+    if html_content:
         files["index.html"] = html_content.encode("utf-8")
-        
-        # Generate sample data.csv
+    
+    # Add task-specific data files
+    if task_type == "sum-of-sales":
         csv_content = """item,sales
 Product A,1500
 Product B,2300
@@ -177,10 +321,11 @@ Product D,1200
 Product E,900"""
         files["data.csv"] = csv_content.encode("utf-8")
         
-    elif "markdown-to-html" in task_lower or "markdown-to-html" in brief_lower or "markdown" in task_lower:
-        # Generate markdown-to-html converter
-        html_content = generate_markdown_to_html()
-        files["index.html"] = html_content.encode("utf-8")
+    elif task_type == "markdown-to-html":
+        # If no HTML from LLM, use template
+        if not html_content:
+            html_content = generate_markdown_to_html()
+            files["index.html"] = html_content.encode("utf-8")
         
         # Sample markdown file
         md_content = """# Sample Markdown
@@ -196,10 +341,11 @@ def hello_world():
 ```"""
         files["input.md"] = md_content.encode("utf-8")
         
-    elif "github-user" in task_lower or "github-user" in brief_lower:
-        # Generate GitHub user creation date checker
-        html_content = generate_github_user_created_html(task)
-        files["index.html"] = html_content.encode("utf-8")
+    elif task_type == "github-user-created":
+        # If no HTML from LLM, use template
+        if not html_content:
+            html_content = generate_github_user_created_html(task)
+            files["index.html"] = html_content.encode("utf-8")
     
     # Always add README and LICENSE
     files["README.md"] = generate_readme(task, brief, round_num).encode("utf-8")
