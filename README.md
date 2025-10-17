@@ -1,3 +1,13 @@
+---
+title: TDS Project 1 - LLM Code Deployment
+emoji: 🚀
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # TDS Project 1 - LLM Code Deployment
 
 A FastAPI application that handles GitHub repository creation, file uploads, and GitHub Pages setup for the TDS LLM Code Deployment project.
