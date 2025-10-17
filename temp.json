@@ -1,0 +1,24 @@
+{
+  "email": "student@example.com",
+  "secret": "YaarThachaSattaiThathaThachaSattai",
+  "task": "sum-of-sales-round1-001",
+  "round": 1,
+  "nonce": "nonce-12345-round1-test",
+  "brief": "sum-of-sales",
+  "checks": [
+    "Repository exists and is public",
+    "GitHub Pages is enabled",
+    "Page loads successfully",
+    "Page displays sum of sales correctly in #total-sales element",
+    "Page shows sales data in a table",
+    "README.md exists and describes the project",
+    "LICENSE file exists (MIT recommended)"
+  ],
+  "evaluation_url": "https://httpbin.org/post",
+  "attachments": [
+    {
+      "name": "sales_data.csv",
+      "url": "data:text/csv;base64,..." // Contains sample sales data
+    }
+  ]
+}

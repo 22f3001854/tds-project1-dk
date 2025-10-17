@@ -292,6 +292,7 @@ Requirements:
 - Follow best practices for HTML5, CSS3, and modern JavaScript
 - Ensure the page is mobile-responsive
 - Add loading states and user-friendly messages where appropriate
+- Make sure to check all the CDN links are correct and accessible
 
 Return ONLY the complete HTML file. No explanations or markdown code blocks."""
 
