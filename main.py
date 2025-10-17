@@ -11,7 +11,7 @@ import base64
 import time
 from typing import Dict, Any, Optional, List
 import requests
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.responses import JSONResponse, HTMLResponse
 from pydantic import BaseModel, Field
 import uvicorn
@@ -721,30 +721,117 @@ def post_evaluation_with_backoff(url: str, data: Dict[str, Any], max_retries: in
         try:
             response = requests.post(url, json=data, timeout=30)
             if response.status_code in [200, 201]:
+                print(f"✅ Evaluation posted successfully to {url}")
                 return True
             
-            print(f"Evaluation post attempt {attempt + 1} failed: {response.status_code}")
+            print(f"⚠️ Evaluation post attempt {attempt + 1} failed: {response.status_code}")
             
         except requests.RequestException as e:
-            print(f"Evaluation post attempt {attempt + 1} failed: {e}")
+            print(f"⚠️ Evaluation post attempt {attempt + 1} failed: {e}")
         
         if attempt < max_retries - 1:
             wait_time = min(2 ** attempt, 16)  # Exponential backoff, max 16s
             time.sleep(wait_time)
     
+    print(f"❌ Failed to post evaluation after {max_retries} attempts")
     return False
 
+def process_task_background(
+    email: str,
+    task: str,
+    round_num: int,
+    nonce: str,
+    evaluation_url: str,
+    brief: str,
+    attachments: List[Attachment],
+    checks: List[str]
+):
+    """
+    Process the task in the background and post evaluation when complete.
+    This function runs asynchronously after returning 200 OK to the client.
+    """
+    try:
+        print(f"🚀 Background task started for {task}, Round {round_num}")
+        
+        # Generate repository name
+        repo_name = f"tds-project1-{task}"
+        
+        # Create or get repository
+        repo_data = create_or_get_repo(repo_name)
+        repo_url = repo_data["html_url"]
+        print(f"📦 Repository: {repo_url}")
+        
+        # Generate site files
+        files = generate_site(task, brief, round_num, attachments, checks)
+        print(f"📝 Generated {len(files)} files")
+        
+        # Upload files
+        latest_commit_sha = None
+        for filename, content in files.items():
+            commit_data = put_file(repo_name, filename, content, f"Round {round_num}: Add {filename}")
+            latest_commit_sha = commit_data["commit"]["sha"]
+            print(f"✅ Uploaded: {filename}")
+        
+        # Enable GitHub Pages (only needed for Round 1, but safe to call multiple times)
+        enable_pages(repo_name)
+        print(f"🌐 GitHub Pages enabled")
+        
+        # Construct Pages URL
+        pages_url = f"https://{GITHUB_OWNER}.github.io/{repo_name}/"
+        
+        # Prepare evaluation response
+        evaluation_data = {
+            "email": email,
+            "task": task,
+            "round": round_num,
+            "nonce": nonce,
+            "repo_url": repo_url,
+            "commit_sha": latest_commit_sha,
+            "pages_url": pages_url,
+            "status": "success"
+        }
+        
+        # Post evaluation with backoff
+        print(f"📤 Posting evaluation to: {evaluation_url}")
+        success = post_evaluation_with_backoff(evaluation_url, evaluation_data)
+        
+        if success:
+            print(f"✅ Task {task} completed successfully!")
+        else:
+            print(f"❌ Task {task} completed but evaluation post failed")
+            
+    except Exception as e:
+        print(f"❌ Background task failed for {task}: {str(e)}")
+        # Try to post error to evaluation URL
+        error_data = {
+            "email": email,
+            "task": task,
+            "round": round_num,
+            "nonce": nonce,
+            "status": "error",
+            "error": str(e)
+        }
+        try:
+            requests.post(evaluation_url, json=error_data, timeout=30)
+        except:
+            pass
+
 @app.post("/handle_task")
-async def handle_task(payload: TaskRequest):
+async def handle_task(payload: TaskRequest, background_tasks: BackgroundTasks):
     """
     Main endpoint to handle TDS server requests.
     
+    This endpoint immediately returns 200 OK to acknowledge receipt,
+    then processes the task in the background and posts evaluation
+    results to the evaluation_url within 10 minutes.
+    
     Processes both Round 1 and Round 2 tasks:
     - Verifies APP_SECRET
-    - Creates/updates GitHub repository
-    - Generates and uploads files
-    - Enables GitHub Pages
-    - Posts evaluation response
+    - Returns 200 OK immediately
+    - Creates/updates GitHub repository (background)
+    - Generates and uploads files (background)
+    - Enables GitHub Pages (background)
+    - Posts evaluation response to evaluation_url (background)
     """
     try:
         # Verify secret
@@ -761,52 +848,31 @@ async def handle_task(payload: TaskRequest):
         attachments = payload.attachments or []
         checks = payload.checks or []
         
-        # Generate repository name
-        repo_name = f"tds-project1-{task}"
+        # Add background task to process the request
+        background_tasks.add_task(
+            process_task_background,
+            email=email,
+            task=task,
+            round_num=round_num,
+            nonce=nonce,
+            evaluation_url=evaluation_url,
+            brief=brief,
+            attachments=attachments,
+            checks=checks
+        )
         
-        # Create or get repository
-        repo_data = create_or_get_repo(repo_name)
-        repo_url = repo_data["html_url"]
-        
-        # Generate site files
-        files = generate_site(task, brief, round_num, attachments, checks)
-        
-        # Upload files
-        latest_commit_sha = None
-        for filename, content in files.items():
-            commit_data = put_file(repo_name, filename, content, f"Round {round_num}: Add {filename}")
-            latest_commit_sha = commit_data["commit"]["sha"]
-        
-        # Enable GitHub Pages (only needed for Round 1, but safe to call multiple times)
-        enable_pages(repo_name)
-        
-        # Construct Pages URL
-        pages_url = f"https://{GITHUB_OWNER}.github.io/{repo_name}/"
-        
-        # Prepare evaluation response
-        evaluation_data = {
-            "email": email,
-            "task": task,
-            "round": round_num,
-            "nonce": nonce,
-            "repo_url": repo_url,
-            "commit_sha": latest_commit_sha,
-            "pages_url": pages_url
-        }
-        
-        # Post evaluation with backoff
-        success = post_evaluation_with_backoff(evaluation_url, evaluation_data)
-        
-        if not success:
-            raise HTTPException(status_code=500, detail="Failed to post evaluation after multiple attempts")
-        
-        return JSONResponse(content={
-            "status": "success",
-            "repo_url": repo_url,
-            "pages_url": pages_url,
-            "commit_sha": latest_commit_sha,
-            "round": round_num
-        })
+        # Return 200 OK immediately to acknowledge receipt
+        print(f"✅ Request received for {task}, Round {round_num}. Processing in background...")
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "accepted",
+                "message": "Task accepted and is being processed",
+                "task": task,
+                "round": round_num,
+                "nonce": nonce
+            }
+        )
         
     except HTTPException:
         raise
