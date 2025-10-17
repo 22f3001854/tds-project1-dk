@@ -76,9 +76,10 @@ class TaskRequest(BaseModel):
     email: str = Field(..., description="User email address")
     secret: str = Field(..., description="Shared secret for authentication")
     task: str = Field(..., description="Task identifier (e.g., 'sum-of-sales-001')")
-    round: int = Field(..., description="Round number (1 or 2)", ge=1, le=2)
+    round: int = Field(..., description="Round number", ge=1)
     nonce: str = Field(..., description="Unique nonce for this request")
     brief: str = Field(..., description="Task description/brief (e.g., 'sum-of-sales', 'markdown-to-html')")
+    checks: Optional[List[str]] = Field(default=[], description="List of evaluation checks")
     evaluation_url: str = Field(..., description="URL to POST evaluation results")
     attachments: Optional[List[Attachment]] = Field(default=[], description="Optional list of attachments")
 
@@ -94,7 +95,7 @@ def create_or_get_repo(name: str) -> Dict[str, Any]:
     """
     # Check if repo exists first
     check_url = f"{GITHUB_API_BASE}/repos/{GITHUB_OWNER}/{name}"
-    response = requests.get(check_url, headers=HEADERS)
+    response = requests.get(check_url, headers=HEADERS, timeout=30)
     
     if response.status_code == 200:
         return response.json()
@@ -108,7 +109,7 @@ def create_or_get_repo(name: str) -> Dict[str, Any]:
         "auto_init": False
     }
     
-    response = requests.post(create_url, headers=HEADERS, json=repo_data)
+    response = requests.post(create_url, headers=HEADERS, json=repo_data, timeout=30)
     if response.status_code not in [200, 201]:
         raise HTTPException(status_code=500, detail=f"Failed to create repository: {response.text}")
     
@@ -132,13 +133,13 @@ def enable_pages(name: str) -> Dict[str, Any]:
         }
     }
     
-    response = requests.post(pages_url, headers=HEADERS, json=pages_data)
+    response = requests.post(pages_url, headers=HEADERS, json=pages_data, timeout=30)
     if response.status_code not in [200, 201, 409]:  # 409 = already exists
         raise HTTPException(status_code=500, detail=f"Failed to enable pages: {response.text}")
     
     if response.status_code == 409:
         # Pages already enabled, get current config
-        response = requests.get(pages_url, headers=HEADERS)
+        response = requests.get(pages_url, headers=HEADERS, timeout=30)
     
     return response.json() if response.status_code in [200, 201] else {"status": "already_enabled"}
 
@@ -158,7 +159,7 @@ def put_file(name: str, path: str, content_bytes: bytes, message: str) -> Dict[s
     file_url = f"{GITHUB_API_BASE}/repos/{GITHUB_OWNER}/{name}/contents/{path}"
     
     # Check if file exists to get SHA
-    existing_response = requests.get(file_url, headers=HEADERS)
+    existing_response = requests.get(file_url, headers=HEADERS, timeout=30)
     sha = None
     if existing_response.status_code == 200:
         sha = existing_response.json().get("sha")
@@ -172,13 +173,13 @@ def put_file(name: str, path: str, content_bytes: bytes, message: str) -> Dict[s
     if sha:
         file_data["sha"] = sha
     
-    response = requests.put(file_url, headers=HEADERS, json=file_data)
+    response = requests.put(file_url, headers=HEADERS, json=file_data, timeout=30)
     if response.status_code not in [200, 201]:
         raise HTTPException(status_code=500, detail=f"Failed to upload file {path}: {response.text}")
     
     return response.json()
 
-def generate_content_with_llm(task: str, brief: str, task_type: str) -> str:
+def generate_content_with_llm(task: str, brief: str, task_type: str, checks: Optional[List[str]] = None) -> str:
     """
     Use LLM to generate HTML/JavaScript content dynamically based on the brief.
     
@@ -186,6 +187,7 @@ def generate_content_with_llm(task: str, brief: str, task_type: str) -> str:
         task: Task identifier
         brief: Task description/brief
         task_type: Type of task (sum-of-sales, markdown-to-html, github-user-created)
+        checks: Optional list of evaluation checks to satisfy
         
     Returns:
         Generated HTML content as string
@@ -247,20 +249,51 @@ Additional requirements from brief: {brief}
 
 Return ONLY the complete HTML file. No explanations."""
 
-    else:
-        prompt = f"""Generate a complete, self-contained HTML file based on this brief:
-
-{brief}
-
-Task: {task}
+    elif "captcha" in task_type:
+        prompt = f"""Generate a complete, self-contained HTML file for a CAPTCHA solver.
 
 Requirements:
+- Title: "CAPTCHA Solver"
 - Use Bootstrap 5 CDN for styling
-- Include all necessary JavaScript inline
-- Make it fully functional and self-contained
-- Follow best practices for HTML5
+- Accept a ?url=... query parameter for the captcha image URL
+- Display the captcha image from the URL parameter
+- If no URL parameter, use a default/sample image from attachments
+- Include image processing/OCR capabilities (you can use Tesseract.js CDN)
+- Display the solved captcha text within 15 seconds
+- Show results clearly in a prominent area
+- Include proper error handling for image loading failures
+
+Additional requirements from brief: {brief}
 
 Return ONLY the complete HTML file. No explanations."""
+
+    else:
+        # Generic prompt for any unknown task type
+        # The LLM will interpret the brief and create appropriate functionality
+        checks_text = ""
+        if checks:
+            checks_text = "\n\nEvaluation Checks (MUST satisfy):\n" + "\n".join(f"- {check}" for check in checks)
+        
+        prompt = f"""Generate a complete, self-contained HTML file based on this task brief.
+
+Task Name: {task}
+Task Type: {task_type}
+
+Brief: {brief}{checks_text}
+
+Requirements:
+- Create a fully functional web application that fulfills the brief requirements
+- Use Bootstrap 5 CDN for modern, responsive styling
+- Include all necessary JavaScript inline (no external files)
+- Handle URL parameters if mentioned in the brief (e.g., ?url=..., ?id=...)
+- Use appropriate JavaScript libraries from CDN if needed (e.g., Chart.js, Marked.js, Tesseract.js, etc.)
+- Include proper error handling and user feedback
+- Make it completely self-contained (all code in one HTML file)
+- Follow best practices for HTML5, CSS3, and modern JavaScript
+- Ensure the page is mobile-responsive
+- Add loading states and user-friendly messages where appropriate
+
+Return ONLY the complete HTML file. No explanations or markdown code blocks."""
 
     try:
         response = openai_client.chat.completions.create(
@@ -270,7 +303,8 @@ Return ONLY the complete HTML file. No explanations."""
                 {"role": "user", "content": prompt}
             ],
             temperature=0.7,
-            max_tokens=2000
+            max_tokens=2000,
+            timeout=60  # 60 second timeout for LLM generation
         )
         
         html_content = response.choices[0].message.content.strip()
@@ -289,7 +323,7 @@ Return ONLY the complete HTML file. No explanations."""
         print(f"LLM generation failed: {e}. Falling back to templates.")
         return None
 
-def generate_site(task: str, brief: str, round_num: int, attachments: Optional[Dict] = None) -> Dict[str, bytes]:
+def generate_site(task: str, brief: str, round_num: int, attachments: Optional[Dict] = None, checks: Optional[List[str]] = None) -> Dict[str, bytes]:
     """
     Generate static site files based on task brief.
     
@@ -298,6 +332,7 @@ def generate_site(task: str, brief: str, round_num: int, attachments: Optional[D
         brief: Task description/brief
         round_num: Round number (1 or 2)
         attachments: Optional attachments data
+        checks: Optional list of evaluation checks
         
     Returns:
         Dictionary mapping filenames to file content as bytes
@@ -308,7 +343,7 @@ def generate_site(task: str, brief: str, round_num: int, attachments: Optional[D
     task_lower = task.lower()
     brief_lower = brief.lower()
     
-    # Try LLM generation first
+    # Identify known task types
     task_type = ""
     if "sum-of-sales" in task_lower or "sum-of-sales" in brief_lower:
         task_type = "sum-of-sales"
@@ -316,11 +351,17 @@ def generate_site(task: str, brief: str, round_num: int, attachments: Optional[D
         task_type = "markdown-to-html"
     elif "github-user" in task_lower or "github-user" in brief_lower:
         task_type = "github-user-created"
+    elif "captcha" in task_lower or "captcha" in brief_lower:
+        task_type = "captcha-solver"
+    else:
+        # For unknown task types, use the task name or brief as task_type
+        task_type = task_lower.split('-')[0] if '-' in task_lower else brief_lower
     
     # Generate HTML using LLM (if available) or fallback to templates
     html_content = None
-    if openai_client and task_type:
-        html_content = generate_content_with_llm(task, brief, task_type)
+    if openai_client:
+        # Always try LLM first for all task types (including new ones)
+        html_content = generate_content_with_llm(task, brief, task_type, checks)
     
     # If LLM generation failed or not available, use hardcoded templates
     if not html_content:
@@ -717,6 +758,7 @@ async def handle_task(payload: TaskRequest):
         evaluation_url = payload.evaluation_url
         brief = payload.brief
         attachments = payload.attachments or []
+        checks = payload.checks or []
         
         # Generate repository name
         repo_name = f"tds-project1-{task}"
@@ -726,7 +768,7 @@ async def handle_task(payload: TaskRequest):
         repo_url = repo_data["html_url"]
         
         # Generate site files
-        files = generate_site(task, brief, round_num, attachments)
+        files = generate_site(task, brief, round_num, attachments, checks)
         
         # Upload files
         latest_commit_sha = None

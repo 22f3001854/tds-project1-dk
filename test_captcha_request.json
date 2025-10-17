@@ -1,0 +1,21 @@
+{
+  "email": "student@example.com",
+  "secret": "YaarThachaSattaiThathaThachaSattai",
+  "task": "captcha-solver-test-001",
+  "round": 1,
+  "nonce": "ab12-test-captcha-001",
+  "brief": "Create a captcha solver that handles ?url=https://.../image.png. Default to attached sample.",
+  "checks": [
+    "Repo has MIT license",
+    "README.md is professional",
+    "Page displays captcha URL passed at ?url=...",
+    "Page displays solved captcha text within 15 seconds"
+  ],
+  "evaluation_url": "https://httpbin.org/post",
+  "attachments": [
+    {
+      "name": "sample.png",
+      "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+    }
+  ]
+}
