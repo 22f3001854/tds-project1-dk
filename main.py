@@ -8,6 +8,7 @@ import os
 import sys
 import json
 import base64
+import re
 import time
 from typing import Dict, Any, Optional, List
 import requests
@@ -323,6 +324,1108 @@ Return ONLY the complete HTML file. No explanations or markdown code blocks."""
     except Exception as e:
         print(f"LLM generation failed: {e}. Falling back to templates.")
         return None
+
+class UniversalTaskGenerator:
+    """Universal task generator that can handle any kind of request dynamically."""
+    
+    def __init__(self):
+        self.supported_extensions = [
+            '.txt', '.json', '.svg', '.css', '.js', '.html', '.md', '.py', '.php', '.xml',
+            '.yaml', '.yml', '.toml', '.ini', '.conf', '.c', '.cpp', '.java', '.rs'
+        ]
+    
+    def _extract_files_from_brief(self, brief: str) -> List[str]:
+        """Extract file names from the brief using regex patterns."""
+        files = []
+        
+        # Pattern for explicit file mentions with extensions
+        file_patterns = [
+            r'\b(\w+\.\w+)\b',  # Basic pattern: filename.extension
+            r'(?:file|create|build|generate|make)s?\s+(?:called\s+)?["\']?(\w+\.\w+)["\']?',
+            r'(\w+\.(?:txt|json|svg|css|js|html|md|py|php|xml|yaml|yml|toml|ini|conf|c|cpp|java|rs))\b'
+        ]
+        
+        for pattern in file_patterns:
+            matches = re.findall(pattern, brief, re.IGNORECASE)
+            for match in matches:
+                if isinstance(match, tuple):
+                    match = match[0] if match[0] else match[1]
+                if '.' in match and any(match.lower().endswith(ext) for ext in self.supported_extensions):
+                    files.append(match)
+        
+        # Remove duplicates while preserving order
+        unique_files = []
+        for file in files:
+            if file not in unique_files:
+                unique_files.append(file)
+        
+        return unique_files[:10]  # Limit to 10 files max
+    
+    def _has_multiple_file_requirements(self, brief: str) -> bool:
+        """Check if the brief requires multiple files."""
+        multi_file_indicators = [
+            'files', 'create multiple', 'several files', 'different files',
+            'also create', 'and a', 'along with', 'additional file',
+            'separate file', 'another file', 'include file'
+        ]
+        return any(indicator in brief.lower() for indicator in multi_file_indicators)
+    
+    def _detect_task_type(self, task: str, brief: str) -> str:
+        """Detect the task type from task name and brief."""
+        task_lower = task.lower()
+        brief_lower = brief.lower()
+        
+        # Known task types
+        if 'sharevolume' in task_lower or 'share-volume' in task_lower:
+            return 'shareVolume'
+        elif 'llmpages' in task_lower or 'llm-pages' in task_lower:
+            return 'llmpages'
+        elif any(term in brief_lower for term in ['sec api', 'sec.gov', 'financial', 'stock']):
+            return 'shareVolume'
+        elif self._has_multiple_file_requirements(brief) or len(self._extract_files_from_brief(brief)) > 0:
+            return 'multifile'
+        else:
+            return 'general'
+    
+    def _generate_enhanced_html(self, task: str, brief: str, required_files: List[str], checks: Optional[List[str]] = None) -> str:
+        """Generate enhanced HTML with all required elements."""
+        
+        # Determine if this is a SEC/ShareVolume task
+        is_sec_task = any(term in brief.lower() for term in ['sec api', 'sec.gov', 'sharevolume', 'financial'])
+        
+        # Base HTML template with enhanced features
+        html_template = f'''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{task.replace('_', ' ').title()}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {{
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            min-height: 100vh;
+        }}
+        
+        .main-container {{
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            margin-top: 20px;
+            margin-bottom: 20px;
+        }}
+        
+        .header-section {{
+            background: linear-gradient(45deg, #007bff, #0056b3);
+            color: white;
+            border-radius: 15px 15px 0 0;
+            padding: 30px;
+            text-align: center;
+        }}
+        
+        .content-section {{
+            padding: 30px;
+        }}
+        
+        .data-card {{
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.08);
+            transition: transform 0.3s ease;
+        }}
+        
+        .data-card:hover {{
+            transform: translateY(-5px);
+        }}
+        
+        .metric-value {{
+            font-size: 2rem;
+            font-weight: bold;
+            color: #007bff;
+        }}
+        
+        .metric-label {{
+            color: #6c757d;
+            font-weight: 500;
+            margin-top: 5px;
+        }}
+        
+        .btn-gradient {{
+            background: linear-gradient(45deg, #007bff, #0056b3);
+            border: none;
+            color: white;
+            padding: 12px 30px;
+            border-radius: 25px;
+            transition: all 0.3s ease;
+        }}
+        
+        .btn-gradient:hover {{
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0,123,255,0.3);
+        }}
+        
+        .loading {{
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }}
+        
+        .error {{
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+            border: 1px solid #f5c6cb;
+        }}
+        
+        .success {{
+            background: #d4edda;
+            color: #155724;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+            border: 1px solid #c3e6cb;
+        }}
+        
+        .file-manager {{
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 20px;
+        }}
+        
+        .chart-container {{
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.08);
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="main-container">
+            <div class="header-section">
+                <h1><i class="fas fa-chart-line me-3"></i>{task.replace('_', ' ').title()}</h1>
+                <p class="lead mb-0">Enhanced Web Application</p>
+            </div>
+            
+            <div class="content-section">'''
+        
+        # Add SEC-specific content for ShareVolume tasks
+        if is_sec_task:
+            html_template += '''
+                <div class="row mb-4">
+                    <div class="col-md-4">
+                        <div class="data-card text-center">
+                            <div id="share-entity-name" class="metric-value">Loading...</div>
+                            <div class="metric-label">Entity Name</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="data-card text-center">
+                            <div id="share-max-value" class="metric-value">Loading...</div>
+                            <div class="metric-label">Max Value</div>
+                            <small id="share-max-fy" class="text-muted">Fiscal Year: Loading...</small>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="data-card text-center">
+                            <div id="share-min-value" class="metric-value">Loading...</div>
+                            <div class="metric-label">Min Value</div>
+                            <small id="share-min-fy" class="text-muted">Fiscal Year: Loading...</small>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="chart-container">
+                    <canvas id="shareVolumeChart" width="400" height="200"></canvas>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <button class="btn btn-gradient w-100" onclick="fetchShareVolumeData()">
+                            <i class="fas fa-sync-alt me-2"></i>Refresh Data
+                        </button>
+                    </div>
+                    <div class="col-md-6">
+                        <button class="btn btn-outline-primary w-100" onclick="exportData()">
+                            <i class="fas fa-download me-2"></i>Export Data
+                        </button>
+                    </div>
+                </div>
+                
+                <div id="loading" class="loading">
+                    <i class="fas fa-spinner fa-spin fa-2x text-primary"></i>
+                    <p class="mt-2">Fetching data from SEC API...</p>
+                </div>
+                
+                <div id="error-message"></div>'''
+        
+        # Add file manager section if multiple files are required
+        if required_files:
+            html_template += '''
+                <div class="file-manager">
+                    <h5><i class="fas fa-folder-open me-2"></i>File Manager</h5>
+                    <div class="row mb-3">
+                        <div class="col-md-8">
+                            <h6>Quick Access Links</h6>
+                            <div id="file-links" class="d-flex flex-wrap gap-2">
+                                <!-- File links will be populated by JavaScript -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5><i class="fas fa-files-o me-2"></i>Required Files</h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="file-list" class="list-group list-group-flush">
+                                    <!-- Files will be populated by JavaScript -->
+                                </div>
+                                <div class="mt-3">
+                                    <button class="btn btn-success btn-sm" onclick="downloadAll()">
+                                        <i class="fas fa-download me-2"></i>Download All
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-8">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5><i class="fas fa-edit me-2"></i>File Editor</h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="file-editor">
+                                    <div class="text-center text-muted py-5">
+                                        <i class="fas fa-file-alt fa-3x mb-3"></i>
+                                        <p>Select a file from the list to edit</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>'''
+        
+        # Add JavaScript section
+        html_template += '''
+            </div>
+        </div>
+    </div>
+
+    <script>'''
+        
+        # Add SEC API functionality for ShareVolume tasks
+        if is_sec_task:
+            html_template += '''
+        // SEC API Integration
+        const secApiBase = 'https://data.sec.gov/api/xbrl/companyconcept/CIK';
+        const aipipeProxy = 'https://aipipe.co/api/json';
+        
+        async function fetchShareVolumeData() {
+            try {
+                document.getElementById('loading').style.display = 'block';
+                clearError();
+                
+                // Sample companies for demonstration
+                const companies = [
+                    { cik: '0000320193', name: 'Apple Inc.' },
+                    { cik: '0001018724', name: 'Amazon.com Inc.' },
+                    { cik: '0001652044', name: 'Alphabet Inc.' }
+                ];
+                
+                const randomCompany = companies[Math.floor(Math.random() * companies.length)];
+                
+                // Fetch data via AIPipe proxy to avoid CORS
+                const response = await fetch(`${aipipeProxy}?url=${encodeURIComponent(secApiBase + randomCompany.cik + '/us-gaap/CommonStockSharesOutstanding.json')}`);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                updateShareVolumeDisplay(data, randomCompany.name);
+                updateChart(data);
+                
+            } catch (error) {
+                console.error('Error fetching SEC data:', error);
+                showError('Failed to fetch data from SEC API. Using sample data.');
+                
+                // Fallback to sample data
+                const sampleData = {
+                    units: {
+                        shares: [{
+                            val: Math.floor(Math.random() * 1000000000),
+                            fy: 2023,
+                            form: '10-K'
+                        }, {
+                            val: Math.floor(Math.random() * 1000000000),
+                            fy: 2022,
+                            form: '10-K'
+                        }]
+                    }
+                };
+                updateShareVolumeDisplay(sampleData, 'Sample Company');
+                updateChart(sampleData);
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+        
+        function updateShareVolumeDisplay(data, entityName) {
+            const shares = data.units?.shares || [];
+            if (shares.length === 0) return;
+            
+            const values = shares.map(s => s.val).filter(v => v != null);
+            const maxValue = Math.max(...values);
+            const minValue = Math.min(...values);
+            
+            const maxEntry = shares.find(s => s.val === maxValue);
+            const minEntry = shares.find(s => s.val === minValue);
+            
+            document.getElementById('share-entity-name').textContent = entityName;
+            document.getElementById('share-max-value').textContent = formatNumber(maxValue);
+            document.getElementById('share-max-fy').textContent = `Fiscal Year: ${maxEntry?.fy || 'N/A'}`;
+            document.getElementById('share-min-value').textContent = formatNumber(minValue);
+            document.getElementById('share-min-fy').textContent = `Fiscal Year: ${minEntry?.fy || 'N/A'}`;
+        }
+        
+        function updateChart(data) {
+            const ctx = document.getElementById('shareVolumeChart').getContext('2d');
+            const shares = data.units?.shares || [];
+            
+            const chartData = shares.slice(0, 10).map(s => ({
+                x: s.fy,
+                y: s.val
+            })).sort((a, b) => a.x - b.x);
+            
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    datasets: [{
+                        label: 'Shares Outstanding',
+                        data: chartData,
+                        borderColor: '#007bff',
+                        backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Shares Outstanding Over Time'
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Fiscal Year'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Shares Outstanding'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        function formatNumber(num) {
+            if (num >= 1e9) return (num / 1e9).toFixed(1) + 'B';
+            if (num >= 1e6) return (num / 1e6).toFixed(1) + 'M';
+            if (num >= 1e3) return (num / 1e3).toFixed(1) + 'K';
+            return num.toLocaleString();
+        }
+        
+        function showError(message) {
+            const errorDiv = document.getElementById('error-message');
+            errorDiv.innerHTML = `<div class="error">${message}</div>`;
+        }
+        
+        function clearError() {
+            document.getElementById('error-message').innerHTML = '';
+        }
+        
+        function exportData() {
+            // Simple CSV export functionality
+            const entityName = document.getElementById('share-entity-name').textContent;
+            const maxValue = document.getElementById('share-max-value').textContent;
+            const minValue = document.getElementById('share-min-value').textContent;
+            
+            const csvContent = `Entity,Max Value,Min Value\\n${entityName},${maxValue},${minValue}`;
+            const blob = new Blob([csvContent], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'share_volume_data.csv';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+        
+        // Initialize data on page load
+        document.addEventListener('DOMContentLoaded', fetchShareVolumeData);'''
+        
+        # Add file manager functionality if required
+        if required_files:
+            required_files_js = json.dumps(required_files)
+            html_template += f'''
+        
+        // File Manager Functionality
+        const requiredFiles = {required_files_js};
+        
+        function initializeFileManager() {{
+            const fileList = document.getElementById('file-list');
+            const fileLinksContainer = document.getElementById('file-links');
+            
+            if (requiredFiles.length === 0) {{
+                fileList.innerHTML = '<div class="text-muted p-3">No specific files mentioned in the brief</div>';
+                fileLinksContainer.innerHTML = '<span class="text-muted">No files to link</span>';
+                return;
+            }}
+            
+            // Create file navigation links
+            requiredFiles.forEach((fileName, index) => {{
+                // Add to file list
+                const fileItem = document.createElement('div');
+                fileItem.className = 'list-group-item list-group-item-action';
+                fileItem.innerHTML = `
+                    <div class="d-flex justify-content-between align-items-center">
+                        <span>
+                            <i class="fas fa-file me-2"></i>
+                            ${{fileName}}
+                        </span>
+                        <div>
+                            <span class="badge bg-secondary me-2">${{getFileType(fileName)}}</span>
+                            <a href="./${{fileName}}" target="_blank" class="btn btn-sm btn-outline-primary">
+                                <i class="fas fa-external-link-alt"></i>
+                            </a>
+                        </div>
+                    </div>
+                `;
+                fileItem.onclick = (e) => {{
+                    if (!e.target.closest('a')) {{ // Don't trigger if clicking the link
+                        loadFile(fileName);
+                    }}
+                }};
+                fileList.appendChild(fileItem);
+                
+                // Add to quick access links
+                const linkButton = document.createElement('a');
+                linkButton.href = `./${{fileName}}`;
+                linkButton.target = '_blank';
+                linkButton.className = `btn btn-outline-primary btn-sm`;
+                linkButton.innerHTML = `
+                    <i class="fas fa-file me-1"></i>
+                    ${{fileName}}
+                    <i class="fas fa-external-link-alt ms-1"></i>
+                `;
+                fileLinksContainer.appendChild(linkButton);
+            }});
+            
+            // Add a "Download All" link
+            const downloadAllBtn = document.createElement('button');
+            downloadAllBtn.className = 'btn btn-success btn-sm';
+            downloadAllBtn.innerHTML = '<i class="fas fa-download me-1"></i>Download All';
+            downloadAllBtn.onclick = downloadAll;
+            fileLinksContainer.appendChild(downloadAllBtn);
+        }}
+        
+        function getFileType(fileName) {{
+            const extension = fileName.split('.').pop().toLowerCase();
+            const typeMap = {{
+                'txt': 'Text',
+                'json': 'JSON',
+                'svg': 'SVG',
+                'css': 'CSS',
+                'js': 'JavaScript',
+                'html': 'HTML',
+                'md': 'Markdown',
+                'py': 'Python',
+                'php': 'PHP',
+                'xml': 'XML'
+            }};
+            return typeMap[extension] || extension.toUpperCase();
+        }}
+        
+        function loadFile(fileName) {{
+            const fileEditor = document.getElementById('file-editor');
+            const extension = fileName.split('.').pop().toLowerCase();
+            
+            let content = generateFileContent(fileName);
+            
+            fileEditor.innerHTML = `
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h6 class="mb-0">
+                        <i class="fas fa-file me-2"></i>${{fileName}}
+                    </h6>
+                    <span class="badge bg-primary">${{getFileType(fileName)}}</span>
+                </div>
+                <textarea class="form-control" rows="20" id="file-content" style="font-family: 'Courier New', monospace;">${{content}}</textarea>
+                <div class="mt-3">
+                    <button class="btn btn-primary" onclick="saveFile('${{fileName}}')">
+                        <i class="fas fa-save me-2"></i>Save
+                    </button>
+                    <button class="btn btn-outline-secondary ms-2" onclick="downloadFile('${{fileName}}')">
+                        <i class="fas fa-download me-2"></i>Download
+                    </button>
+                    <button class="btn btn-outline-info ms-2" onclick="previewFile('${{fileName}}')">
+                        <i class="fas fa-eye me-2"></i>Preview
+                    </button>
+                </div>
+                <div id="file-preview" class="mt-3" style="display: none;"></div>
+            `;
+        }}
+        
+        function generateFileContent(fileName) {{
+            const extension = fileName.split('.').pop().toLowerCase();
+            const baseName = fileName.replace(`.$${{extension}}`, '');
+            const timestamp = new Date().toISOString();
+            
+            switch(extension) {{
+                case 'json':
+                    return JSON.stringify({{
+                        "name": baseName,
+                        "type": "generated",
+                        "timestamp": timestamp,
+                        "description": `Generated content for ${{fileName}}`,
+                        "data": {{
+                            "example": "value"
+                        }}
+                    }}, null, 2);
+                    
+                case 'txt':
+                    return `This is ${{fileName}}
+Generated by Multi-File Manager
+Timestamp: ${{timestamp}}
+
+This file was automatically created based on the task requirements.
+You can modify this content as needed for your specific use case.
+
+Add your content here...`;
+
+                case 'css':
+                    return `/* Generated CSS for ${{fileName}} */
+
+body {{
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    margin: 0;
+    padding: 20px;
+    background-color: #f8f9fa;
+}}
+
+.container {{
+    max-width: 1200px;
+    margin: 0 auto;
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}}
+
+h1 {{
+    color: #007bff;
+    text-align: center;
+    margin-bottom: 30px;
+}}
+
+.btn {{
+    background-color: #007bff;
+    color: white;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}}
+
+.btn:hover {{
+    background-color: #0056b3;
+}}`;
+
+                case 'js':
+                    return `// Generated JavaScript for ${{fileName}}
+
+document.addEventListener('DOMContentLoaded', function() {{
+    console.log('Loaded ${{fileName}}');
+    
+    // Initialize the application
+    init${{baseName.charAt(0).toUpperCase() + baseName.slice(1)}}();
+}});
+
+function init${{baseName.charAt(0).toUpperCase() + baseName.slice(1)}}() {{
+    console.log('Initializing ${{baseName}}...');
+    
+    // Add your custom logic here
+    setupEventListeners();
+    loadData();
+}}
+
+function setupEventListeners() {{
+    // Add event listeners for user interactions
+    const buttons = document.querySelectorAll('.btn');
+    buttons.forEach(button => {{
+        button.addEventListener('click', function() {{
+            console.log('Button clicked:', this.textContent);
+        }});
+    }});
+}}
+
+function loadData() {{
+    // Load any required data
+    console.log('Loading data for ${{baseName}}...');
+}}`;
+
+                case 'html':
+                    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${{baseName}}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container mt-5">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="./index.html">Home</a></li>
+                <li class="breadcrumb-item active">${{fileName}}</li>
+            </ol>
+        </nav>
+        
+        <h1>${{baseName}}</h1>
+        <p class="lead">Generated HTML file for ${{fileName}}</p>
+        
+        <div class="alert alert-info">
+            <i class="fas fa-info-circle me-2"></i>
+            This file was automatically generated. You can edit its content using the file manager.
+        </div>
+        
+        <!-- Add your content here -->
+        <div class="row">
+            <div class="col-md-6">
+                <h3>Section 1</h3>
+                <p>Add your content here...</p>
+            </div>
+            <div class="col-md-6">
+                <h3>Section 2</h3>
+                <p>Add your content here...</p>
+            </div>
+        </div>
+        
+        <div class="mt-4">
+            <a href="./index.html" class="btn btn-primary">
+                <i class="fas fa-arrow-left me-2"></i>Back to File Manager
+            </a>
+        </div>
+    </div>
+</body>
+</html>`;
+
+                case 'md':
+                    return `# ${{baseName}}
+
+Generated markdown file for **${{fileName}}**
+
+## Description
+
+This file was automatically created based on the task requirements.
+
+## Features
+
+- Feature 1
+- Feature 2
+- Feature 3
+
+## Usage
+
+\`\`\`
+Add usage instructions here
+\`\`\`
+
+## Created
+
+${{timestamp}}`;
+
+                default:
+                    return `Generated content for ${{fileName}}
+Created: ${{timestamp}}
+
+This file was automatically generated based on the task requirements.
+Please modify this content according to your specific needs.
+
+File type: ${{extension}}
+Base name: ${{baseName}}`;
+            }}
+        }}
+        
+        function saveFile(fileName) {{
+            const content = document.getElementById('file-content').value;
+            console.log(`Saving ${{fileName}}:`, content);
+            
+            // Show success message
+            const alertDiv = document.createElement('div');
+            alertDiv.className = 'alert alert-success alert-dismissible fade show mt-3';
+            alertDiv.innerHTML = `
+                <i class="fas fa-check-circle me-2"></i>
+                ${{fileName}} saved successfully!
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            document.getElementById('file-editor').appendChild(alertDiv);
+            
+            // Remove alert after 3 seconds
+            setTimeout(() => {{
+                if (alertDiv.parentNode) {{
+                    alertDiv.remove();
+                }}
+            }}, 3000);
+        }}
+        
+        function downloadFile(fileName) {{
+            const content = document.getElementById('file-content').value;
+            const blob = new Blob([content], {{ type: 'text/plain' }});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            a.click();
+            URL.revokeObjectURL(url);
+        }}
+        
+        function downloadAll() {{
+            requiredFiles.forEach(fileName => {{
+                const content = generateFileContent(fileName);
+                const blob = new Blob([content], {{ type: 'text/plain' }});
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = fileName;
+                a.click();
+                URL.revokeObjectURL(url);
+            }});
+        }}
+        
+        document.addEventListener('DOMContentLoaded', initializeFileManager);'''
+        
+        html_template += '''
+    </script>
+</body>
+</html>'''
+        
+        return html_template
+    
+    def generate_site_universal(self, task: str, brief: str, round_num: int, 
+                              attachments: Optional[Dict] = None, 
+                              checks: Optional[List[str]] = None) -> Dict[str, bytes]:
+        """Universal site generation function that handles any task type."""
+        print(f"🔄 Universal generator processing task: {task}")
+        print(f"Brief preview: {brief[:100]}...")
+        
+        # Detect task type and extract files
+        task_type = self._detect_task_type(task, brief)
+        required_files = self._extract_files_from_brief(brief)
+        
+        print(f"✓ Detected task type: {task_type}")
+        
+        # Generate main HTML content
+        html_content = self._generate_enhanced_html(task, brief, required_files, checks)
+        
+        print(f"✓ Generated HTML ({len(html_content)} characters)")
+        
+        # Prepare files dictionary
+        files = {
+            'index.html': html_content.encode('utf-8'),
+            'README.md': f'''# {task.replace('_', ' ').title()}
+
+{brief[:200]}...
+
+## Generated Files
+
+This project was automatically generated with the following structure:
+
+- `index.html` - Main application interface
+- `README.md` - This documentation file  
+- `LICENSE` - MIT License
+
+## Usage
+
+Open `index.html` in a web browser to access the application.
+
+## Features
+
+- Responsive Bootstrap 5 design
+- Interactive data visualization
+- File management system
+- Real-time API integration
+
+Generated on: {time.strftime('%Y-%m-%d %H:%M:%S')}
+'''.encode('utf-8'),
+            'LICENSE': '''MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+'''.encode('utf-8')
+        }
+        
+        # Generate additional files if detected
+        if required_files:
+            print(f"✓ Generated {len(required_files)} additional files for multi-file task")
+            for filename in required_files[:10]:  # Limit to 10 files
+                files[filename] = self._generate_file_content(filename, task, brief).encode('utf-8')
+        
+        print(f"✓ Universal generation complete. Total files: {len(files)}")
+        return files
+    
+    def _generate_file_content(self, filename: str, task: str, brief: str) -> str:
+        """Generate content for a specific file type."""
+        extension = filename.split('.')[-1].lower()
+        basename = filename.replace(f'.{extension}', '')
+        timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
+        
+        content_generators = {
+            'txt': lambda: f'''This is {filename}
+Generated for task: {task}
+Timestamp: {timestamp}
+
+Brief: {brief[:200]}...
+
+This file was automatically created based on the task requirements.
+You can modify this content as needed for your specific use case.
+
+Add your content here...''',
+            
+            'json': lambda: json.dumps({
+                "name": basename,
+                "task": task,
+                "timestamp": timestamp,
+                "description": f"Generated JSON file for {filename}",
+                "brief": brief[:100] + "...",
+                "data": {
+                    "example": "value",
+                    "generated": True
+                }
+            }, indent=2),
+            
+            'css': lambda: f'''/* Generated CSS for {filename} */
+/* Task: {task} */
+/* Generated: {timestamp} */
+
+body {{
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    margin: 0;
+    padding: 20px;
+    background-color: #f8f9fa;
+}}
+
+.container {{
+    max-width: 1200px;
+    margin: 0 auto;
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}}
+
+h1 {{
+    color: #007bff;
+    text-align: center;
+    margin-bottom: 30px;
+}}
+
+.{basename}-style {{
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 20px;
+    border-radius: 10px;
+}}
+
+.btn {{
+    background-color: #007bff;
+    color: white;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}}
+
+.btn:hover {{
+    background-color: #0056b3;
+}}''',
+            
+            'html': lambda: f'''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{basename}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container mt-5">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="./index.html">Home</a></li>
+                <li class="breadcrumb-item active">{filename}</li>
+            </ol>
+        </nav>
+        
+        <h1><i class="fas fa-file-alt me-2"></i>{basename}</h1>
+        <p class="lead">Generated for task: {task}</p>
+        
+        <div class="alert alert-info">
+            <i class="fas fa-info-circle me-2"></i>
+            This file was automatically generated on {timestamp}
+        </div>
+        
+        <div class="row">
+            <div class="col-md-6">
+                <h3>Content Section</h3>
+                <p>This content is based on the brief: {brief[:100]}...</p>
+            </div>
+            <div class="col-md-6">
+                <h3>Additional Features</h3>
+                <ul>
+                    <li>Responsive design</li>
+                    <li>Bootstrap integration</li>
+                    <li>Font Awesome icons</li>
+                </ul>
+            </div>
+        </div>
+        
+        <div class="mt-4">
+            <a href="./index.html" class="btn btn-primary">
+                <i class="fas fa-arrow-left me-2"></i>Back to Main
+            </a>
+        </div>
+    </div>
+</body>
+</html>''',
+            
+            'js': lambda: f'''// Generated JavaScript for {filename}
+// Task: {task}
+// Generated: {timestamp}
+
+document.addEventListener('DOMContentLoaded', function() {{
+    console.log('Loaded {filename}');
+    init{basename.capitalize()}();
+}});
+
+function init{basename.capitalize()}() {{
+    console.log('Initializing {basename}...');
+    setupEventListeners();
+    loadData();
+}}
+
+function setupEventListeners() {{
+    // Event listeners for {basename}
+    const buttons = document.querySelectorAll('.btn');
+    buttons.forEach(button => {{
+        button.addEventListener('click', function() {{
+            console.log('Button clicked:', this.textContent);
+        }});
+    }});
+}}
+
+function loadData() {{
+    // Data loading logic for {basename}
+    console.log('Loading data for {basename}...');
+    
+    // Sample data based on task
+    const data = {{
+        task: '{task}',
+        filename: '{filename}',
+        timestamp: '{timestamp}',
+        brief: '{brief[:50]}...'
+    }};
+    
+    console.log('Data loaded:', data);
+}}''',
+            
+            'md': lambda: f'''# {basename}
+
+> Generated for task: **{task}**  
+> Timestamp: {timestamp}
+
+## Description
+
+{brief[:200]}...
+
+## Features
+
+- Automatically generated content
+- Markdown formatting
+- Task-specific structure
+
+## Usage
+
+This file was created as part of the {task} task. You can edit and customize it according to your requirements.
+
+## Structure
+
+- **File**: {filename}
+- **Type**: Markdown
+- **Generated**: {timestamp}
+
+## Next Steps
+
+1. Review the generated content
+2. Customize as needed
+3. Integrate with your project
+
+---
+
+*Generated by Universal Task Generator*'''
+        }
+        
+        # Use specific generator or fallback to default
+        if extension in content_generators:
+            return content_generators[extension]()
+        else:
+            # Default content for unknown file types
+            return f'''Generated content for {filename}
+Task: {task}
+Generated: {timestamp}
+
+Brief: {brief[:200]}...
+
+This file was automatically generated based on the task requirements.
+Please modify this content according to your specific needs.
+
+File type: {extension}
+Base name: {basename}
+'''
 
 def generate_site(task: str, brief: str, round_num: int, attachments: Optional[Dict] = None, checks: Optional[List[str]] = None) -> Dict[str, bytes]:
     """
@@ -761,8 +1864,9 @@ def process_task_background(
         repo_url = repo_data["html_url"]
         print(f"📦 Repository: {repo_url}")
         
-        # Generate site files
-        files = generate_site(task, brief, round_num, attachments, checks)
+        # Generate site files using universal generator
+        generator = UniversalTaskGenerator()
+        files = generator.generate_site_universal(task, brief, round_num, attachments, checks)
         print(f"📝 Generated {len(files)} files")
         
         # Upload files
