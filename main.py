@@ -1,9 +1,23 @@
 """
-FastAPI LLM Code Deployment Application
-Handles GitHub repository creation, file uploads, and GitHub Pages setup
-Uses LLM to dynamically generate HTML/JavaScript content based on task briefs
+TDS Project 1 - FastAPI LLM Code Deployment Application
+
+This application provides automated GitHub repository creation, file generation,
+and GitHub Pages deployment for educational tasks. It leverages LLM technology
+to dynamically generate HTML/JavaScript content based on task briefs.
+
+Features:
+- Dynamic content generation using AI/LLM
+- Automated GitHub repository management
+- GitHub Pages deployment
+- Support for multiple task types (sum-of-sales, markdown-to-html, etc.)
+- Background task processing with evaluation callbacks
+- Comprehensive error handling and logging
+
+Author: TDS Project Team
+Date: 2025
 """
 
+# Standard library imports
 import os
 import sys
 import json
@@ -11,40 +25,67 @@ import base64
 import re
 import time
 from typing import Dict, Any, Optional, List
+
+# Third-party imports
 import requests
-from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
+import uvicorn
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse, HTMLResponse
 from pydantic import BaseModel, Field
-import uvicorn
 from openai import OpenAI
 
-app = FastAPI(title="TDS Project 1 - LLM Code Deployment")
+# Initialize FastAPI application
+app = FastAPI(
+    title="TDS Project 1 - LLM Code Deployment",
+    description="Automated GitHub repository creation and deployment system",
+    version="1.0.0"
+)
 
-# Environment variables
-APP_SECRET = os.getenv("APP_SECRET")
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-GITHUB_OWNER = os.getenv("GITHUB_OWNER")
-AIPIPE_TOKEN = os.getenv("AIPIPE_TOKEN")  # AI Pipe token (replaces OPENAI_API_KEY)
+# =============================================================================
+# ENVIRONMENT CONFIGURATION
+# =============================================================================
 
+# Required environment variables for application functionality
+APP_SECRET = os.getenv("APP_SECRET")        # Shared secret for authentication
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")    # GitHub personal access token
+GITHUB_OWNER = os.getenv("GITHUB_OWNER")    # GitHub username/organization
+AIPIPE_TOKEN = os.getenv("AIPIPE_TOKEN")    # AI Pipe token for LLM access
+
+# Validate required environment variables
 if not all([APP_SECRET, GITHUB_TOKEN, GITHUB_OWNER]):
-    raise RuntimeError("Missing required environment variables: APP_SECRET, GITHUB_TOKEN, GITHUB_OWNER")
+    raise RuntimeError(
+        "Missing required environment variables: APP_SECRET, GITHUB_TOKEN, GITHUB_OWNER"
+    )
 
-# OpenAI client configured for AI Pipe (optional - will use hardcoded templates if not available)
+# =============================================================================
+# OPENAI/LLM CLIENT CONFIGURATION
+# =============================================================================
+
+# Initialize OpenAI client for AI Pipe integration (optional)
+# If AIPIPE_TOKEN is not available, the application will use hardcoded templates
 openai_client = None
+
 if AIPIPE_TOKEN:
     try:
-        # Configure OpenAI client to use AI Pipe proxy
+        # Configure OpenAI client to use AI Pipe proxy for LLM access
         openai_client = OpenAI(
             api_key=AIPIPE_TOKEN,
             base_url="https://aipipe.org/openai/v1"  # AI Pipe base URL for OpenAI models
         )
+        print("✓ AI Pipe client initialized successfully")
     except Exception as e:
         print(f"Warning: Failed to initialize AI Pipe client: {e}")
-        print("Falling back to hardcoded templates.")
+        print("Application will fall back to hardcoded templates.")
         openai_client = None
 else:
+    print("⚠ AIPIPE_TOKEN not found - Using template fallbacks only")
     openai_client = None
 
+# =============================================================================
+# GITHUB API CONFIGURATION
+# =============================================================================
+
+# GitHub API configuration
 GITHUB_API_BASE = "https://api.github.com"
 HEADERS = {
     "Authorization": f"token {GITHUB_TOKEN}",
@@ -52,79 +93,132 @@ HEADERS = {
     "User-Agent": "tds-project1-dk"
 }
 
+# =============================================================================
+# APPLICATION STARTUP EVENTS
+# =============================================================================
+
 @app.on_event("startup")
 async def startup_event():
-    """Log startup information"""
+    """
+    Application startup event handler.
+    
+    Logs initialization status and configuration information.
+    """
     sys.stdout.flush()
+    
+    print("=" * 80)
+    print("TDS Project 1 - LLM Code Deployment API")
+    print("=" * 80)
+    
     if openai_client:
-        print("-" * 80, flush=True)
-        print("✓ AI Pipe client initialized successfully - LLM generation enabled", flush=True)
-        print("-" * 80, flush=True)
+        print("✓ AI Pipe client initialized successfully - LLM generation enabled")
     else:
-        print("-" * 80, flush=True)
-        print("⚠ AI Pipe client not available - Using template fallbacks", flush=True)
-        print("-" * 80, flush=True)
+        print("⚠ AI Pipe client not available - Using template fallbacks")
+    
+    print(f"✓ GitHub Owner: {GITHUB_OWNER}")
+    print(f"✓ GitHub API Base: {GITHUB_API_BASE}")
+    print("=" * 80)
     sys.stdout.flush()
 
-# Pydantic models for request validation
+# =============================================================================
+# PYDANTIC MODELS FOR REQUEST VALIDATION
+# =============================================================================
 class Attachment(BaseModel):
-    """Attachment data model"""
+    """
+    Data model for file attachments.
+    
+    Represents files that can be attached to task requests,
+    supporting both data URLs and HTTP URLs.
+    """
     name: str = Field(..., description="Attachment filename")
     url: str = Field(..., description="Data URL or HTTP URL to attachment content")
 
+
 class TaskRequest(BaseModel):
-    """Request model for /handle_task endpoint"""
+    """
+    Request model for the /handle_task endpoint.
+    
+    Contains all necessary information to process a TDS project task,
+    including authentication, task details, and evaluation configuration.
+    """
     email: str = Field(..., description="User email address")
     secret: str = Field(..., description="Shared secret for authentication")
     task: str = Field(..., description="Task identifier (e.g., 'sum-of-sales-001')")
     round: int = Field(..., description="Round number", ge=1)
     nonce: str = Field(..., description="Unique nonce for this request")
-    brief: str = Field(..., description="Task description/brief (e.g., 'sum-of-sales', 'markdown-to-html')")
+    brief: str = Field(..., description="Task description/brief")
     checks: Optional[List[str]] = Field(default=[], description="List of evaluation checks")
     evaluation_url: str = Field(..., description="URL to POST evaluation results")
-    attachments: Optional[List[Attachment]] = Field(default=[], description="Optional list of attachments")
+    attachments: Optional[List[Attachment]] = Field(
+        default=[], 
+        description="Optional list of attachments"
+    )
+
+# =============================================================================
+# GITHUB REPOSITORY MANAGEMENT FUNCTIONS
+# =============================================================================
 
 def create_or_get_repo(name: str) -> Dict[str, Any]:
     """
-    Create a new public GitHub repository or get existing one.
+    Create a new public GitHub repository or retrieve existing one.
+    
+    This function first checks if a repository with the given name already exists.
+    If it exists, returns the existing repository data. If not, creates a new
+    public repository with auto-initialization disabled.
     
     Args:
-        name: Repository name
+        name: Repository name (must be valid GitHub repository name)
         
     Returns:
-        Repository data from GitHub API
+        Dict containing repository data from GitHub API
+        
+    Raises:
+        HTTPException: If repository creation fails or API errors occur
     """
-    # Check if repo exists first
+    # Check if repository already exists
     check_url = f"{GITHUB_API_BASE}/repos/{GITHUB_OWNER}/{name}"
     response = requests.get(check_url, headers=HEADERS, timeout=30)
     
     if response.status_code == 200:
+        print(f"✓ Repository '{name}' already exists")
         return response.json()
     
     # Create new repository
+    print(f"📦 Creating new repository: {name}")
     create_url = f"{GITHUB_API_BASE}/user/repos"
     repo_data = {
         "name": name,
         "description": f"TDS Project 1 - {name}",
         "public": True,
-        "auto_init": False
+        "auto_init": False  # We'll add files manually
     }
     
     response = requests.post(create_url, headers=HEADERS, json=repo_data, timeout=30)
-    if response.status_code not in [200, 201]:
-        raise HTTPException(status_code=500, detail=f"Failed to create repository: {response.text}")
     
+    if response.status_code not in [200, 201]:
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to create repository: {response.text}"
+        )
+    
+    print(f"✓ Repository '{name}' created successfully")
     return response.json()
 
 def enable_pages(name: str) -> Dict[str, Any]:
     """
-    Enable GitHub Pages for the repository.
+    Enable GitHub Pages for the specified repository.
+    
+    Configures GitHub Pages to serve content from the main branch root directory.
+    If Pages is already enabled, retrieves the current configuration.
     
     Args:
         name: Repository name
         
     Returns:
-        Pages configuration data
+        Dict containing Pages configuration data
+        
+    Raises:
+        HTTPException: If Pages enablement fails (except when already enabled)
     """
     pages_url = f"{GITHUB_API_BASE}/repos/{GITHUB_OWNER}/{name}/pages"
     pages_data = {
@@ -134,76 +228,172 @@ def enable_pages(name: str) -> Dict[str, Any]:
         }
     }
     
+    print(f"🌐 Enabling GitHub Pages for {name}")
     response = requests.post(pages_url, headers=HEADERS, json=pages_data, timeout=30)
+    
     if response.status_code not in [200, 201, 409]:  # 409 = already exists
-        raise HTTPException(status_code=500, detail=f"Failed to enable pages: {response.text}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to enable GitHub Pages: {response.text}"
+        )
     
     if response.status_code == 409:
-        # Pages already enabled, get current config
+        # Pages already enabled, get current configuration
+        print(f"✓ GitHub Pages already enabled for {name}")
         response = requests.get(pages_url, headers=HEADERS, timeout=30)
+    else:
+        print(f"✓ GitHub Pages enabled for {name}")
     
     return response.json() if response.status_code in [200, 201] else {"status": "already_enabled"}
 
 def put_file(name: str, path: str, content_bytes: bytes, message: str) -> Dict[str, Any]:
     """
-    Upload or update a file in the GitHub repository.
+    Upload or update a file in the specified GitHub repository.
+    
+    This function handles both new file creation and existing file updates.
+    For existing files, it retrieves the current SHA to enable updates.
     
     Args:
         name: Repository name
-        path: File path in repository
+        path: File path within the repository (e.g., 'src/index.html')
         content_bytes: File content as bytes
-        message: Commit message
+        message: Commit message for this file change
         
     Returns:
-        Commit data from GitHub API
+        Dict containing commit data from GitHub API
+        
+    Raises:
+        HTTPException: If file upload fails
     """
     file_url = f"{GITHUB_API_BASE}/repos/{GITHUB_OWNER}/{name}/contents/{path}"
     
-    # Check if file exists to get SHA
+    # Check if file exists to get SHA for updates
     existing_response = requests.get(file_url, headers=HEADERS, timeout=30)
     sha = None
+    
     if existing_response.status_code == 200:
         sha = existing_response.json().get("sha")
+        print(f"📝 Updating existing file: {path}")
+    else:
+        print(f"📝 Creating new file: {path}")
     
-    # Prepare file data
+    # Prepare file data for GitHub API
     file_data = {
         "message": message,
         "content": base64.b64encode(content_bytes).decode("utf-8")
     }
     
+    # Include SHA for updates
     if sha:
         file_data["sha"] = sha
     
     response = requests.put(file_url, headers=HEADERS, json=file_data, timeout=30)
-    if response.status_code not in [200, 201]:
-        raise HTTPException(status_code=500, detail=f"Failed to upload file {path}: {response.text}")
     
+    if response.status_code not in [200, 201]:
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to upload file {path}: {response.text}"
+        )
+    
+    print(f"✅ File {path} uploaded successfully")
     return response.json()
 
-def generate_content_with_llm(task: str, brief: str, task_type: str, checks: Optional[List[str]] = None) -> str:
+# =============================================================================
+# LLM CONTENT GENERATION FUNCTIONS
+# =============================================================================
+
+def generate_content_with_llm(
+    task: str, 
+    brief: str, 
+    task_type: str, 
+    checks: Optional[List[str]] = None
+) -> Optional[str]:
     """
-    Use LLM to generate HTML/JavaScript content dynamically based on the brief.
+    Generate HTML/JavaScript content dynamically using LLM based on task brief.
+    
+    This function constructs task-specific prompts and uses the AI Pipe client
+    to generate appropriate web application content. Falls back to None if
+    LLM is not available or generation fails.
     
     Args:
-        task: Task identifier
-        brief: Task description/brief
-        task_type: Type of task (sum-of-sales, markdown-to-html, github-user-created)
+        task: Task identifier (e.g., 'sum-of-sales-001')
+        brief: Detailed task description/brief
+        task_type: Type of task (sum-of-sales, markdown-to-html, etc.)
         checks: Optional list of evaluation checks to satisfy
         
     Returns:
-        Generated HTML content as string
+        Generated HTML content as string, or None if generation fails
     """
     if not openai_client:
-        # Fallback to hardcoded templates if no LLM available
+        # No LLM client available, return None to trigger template fallback
+        print("⚠ LLM client not available - will use template fallback")
         return None
     
-    # Construct LLM prompt based on task type
+    # Construct task-specific prompts for different task types
+    prompt = _build_llm_prompt(task, brief, task_type, checks)
+    
+    try:
+        print(f"🤖 Generating content with LLM for task type: {task_type}")
+        
+        response = openai_client.chat.completions.create(
+            model="gpt-4.1-nano",  # AI Pipe model
+            messages=[
+                {
+                    "role": "system", 
+                    "content": "You are an expert web developer. Generate complete, working HTML files with embedded JavaScript. Return only the HTML code, no explanations or markdown code blocks."
+                },
+                {
+                    "role": "user", 
+                    "content": prompt
+                }
+            ],
+            temperature=0.7,
+            max_tokens=2000,
+            timeout=60  # 60 second timeout for LLM generation
+        )
+        
+        html_content = response.choices[0].message.content.strip()
+        
+        # Clean up response - remove markdown code fences if present
+        html_content = _clean_llm_response(html_content)
+        
+        print(f"✅ LLM successfully generated HTML content ({len(html_content)} chars)")
+        return html_content
+        
+    except Exception as e:
+        print(f"❌ LLM generation failed: {e}. Falling back to templates.")
+        return None
+
+
+def _build_llm_prompt(task: str, brief: str, task_type: str, checks: Optional[List[str]]) -> str:
+    """
+    Build task-specific prompts for LLM content generation.
+    
+    Args:
+        task: Task identifier
+        brief: Task description
+        task_type: Type of task
+        checks: Optional evaluation checks
+        
+    Returns:
+        Formatted prompt string for LLM
+    """
+    # Base requirements for all tasks
+    base_requirements = """
+- Use Bootstrap 5 CDN for styling
+- Include all necessary JavaScript inline (no external files)
+- Handle URL parameters if mentioned in the brief
+- Include proper error handling and user feedback
+- Make it completely self-contained (all code in one HTML file)
+- Follow best practices for HTML5, CSS3, and modern JavaScript
+- Ensure mobile-responsive design
+"""
     if "sum-of-sales" in task_type:
-        prompt = f"""Generate a complete, self-contained HTML file for a sales summary application.
+        return f"""Generate a complete, self-contained HTML file for a sales summary application.
 
 Requirements:
 - Title: "Sales Summary"
-- Use Bootstrap 5 CDN for styling
+{base_requirements}
 - Display total sales in an element with id="total-sales"
 - Show a Bootstrap table with sales data
 - Include JavaScript that:
@@ -217,11 +407,11 @@ Additional requirements from brief: {brief}
 Return ONLY the complete HTML file (<!DOCTYPE html> through </html>). No explanations."""
 
     elif "markdown" in task_type:
-        prompt = f"""Generate a complete, self-contained HTML file for a Markdown to HTML converter.
+        return f"""Generate a complete, self-contained HTML file for a Markdown to HTML converter.
 
 Requirements:
 - Title: "Markdown to HTML Converter"
-- Use Bootstrap 5 CDN for styling
+{base_requirements}
 - Include marked.js CDN for markdown parsing
 - Include highlight.js CDN for syntax highlighting
 - Load and render 'input.md' file or accept ?url parameter
@@ -234,11 +424,11 @@ Return ONLY the complete HTML file. No explanations."""
     elif "github-user" in task_type:
         # Extract seed from task name if present
         seed = task.split('-')[-1] if '-' in task else "default"
-        prompt = f"""Generate a complete, self-contained HTML file for a GitHub user account age checker.
+        return f"""Generate a complete, self-contained HTML file for a GitHub user account age checker.
 
 Requirements:
 - Title: "GitHub User Account Age"
-- Use Bootstrap 5 CDN for styling
+{base_requirements}
 - Include a form with id="github-user-{seed}"
 - Form should have an input for GitHub username and submit button
 - On submit, fetch user data from GitHub API: https://api.github.com/users/{{username}}
@@ -251,11 +441,11 @@ Additional requirements from brief: {brief}
 Return ONLY the complete HTML file. No explanations."""
 
     elif "captcha" in task_type:
-        prompt = f"""Generate a complete, self-contained HTML file for a CAPTCHA solver.
+        return f"""Generate a complete, self-contained HTML file for a CAPTCHA solver.
 
 Requirements:
 - Title: "CAPTCHA Solver"
-- Use Bootstrap 5 CDN for styling
+{base_requirements}
 - Accept a ?url=... query parameter for the captcha image URL
 - Display the captcha image from the URL parameter
 - If no URL parameter, use a default/sample image from attachments
@@ -270,12 +460,11 @@ Return ONLY the complete HTML file. No explanations."""
 
     else:
         # Generic prompt for any unknown task type
-        # The LLM will interpret the brief and create appropriate functionality
         checks_text = ""
         if checks:
             checks_text = "\n\nEvaluation Checks (MUST satisfy):\n" + "\n".join(f"- {check}" for check in checks)
         
-        prompt = f"""Generate a complete, self-contained HTML file based on this task brief.
+        return f"""Generate a complete, self-contained HTML file based on this task brief.
 
 Task Name: {task}
 Task Type: {task_type}
@@ -284,61 +473,78 @@ Brief: {brief}{checks_text}
 
 Requirements:
 - Create a fully functional web application that fulfills the brief requirements
-- Use Bootstrap 5 CDN for modern, responsive styling
-- Include all necessary JavaScript inline (no external files)
-- Handle URL parameters if mentioned in the brief (e.g., ?url=..., ?id=...)
-- Use appropriate JavaScript libraries from CDN if needed (e.g., Chart.js, Marked.js, Tesseract.js, etc.)
-- Include proper error handling and user feedback
-- Make it completely self-contained (all code in one HTML file)
-- Follow best practices for HTML5, CSS3, and modern JavaScript
-- Ensure the page is mobile-responsive
+{base_requirements}
+- Use appropriate JavaScript libraries from CDN if needed (Chart.js, Marked.js, Tesseract.js, etc.)
 - Add loading states and user-friendly messages where appropriate
 - Make sure to check all the CDN links are correct and accessible
 
 Return ONLY the complete HTML file. No explanations or markdown code blocks."""
 
-    try:
-        response = openai_client.chat.completions.create(
-            model="gpt-4.1-nano",  # AI Pipe model
-            messages=[
-                {"role": "system", "content": "You are an expert web developer. Generate complete, working HTML files with embedded JavaScript. Return only the HTML code, no explanations or markdown code blocks."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.7,
-            max_tokens=2000,
-            timeout=60  # 60 second timeout for LLM generation
-        )
+
+def _clean_llm_response(html_content: str) -> str:
+    """
+    Clean up LLM response by removing markdown code fences if present.
+    
+    Args:
+        html_content: Raw HTML content from LLM
         
-        html_content = response.choices[0].message.content.strip()
-        
-        # Remove markdown code fences if present
-        if html_content.startswith("```"):
-            lines = html_content.split('\n')
-            html_content = '\n'.join(lines[1:-1]) if len(lines) > 2 else html_content
-        
-        print("-" * 80)
-        print(f"✓ LLM successfully generated HTML content for task type: {task_type}")
-        print("-" * 80)
-        return html_content
-        
-    except Exception as e:
-        print(f"LLM generation failed: {e}. Falling back to templates.")
-        return None
+    Returns:
+        Cleaned HTML content
+    """
+    # Remove markdown code fences if present
+    if html_content.startswith("```"):
+        lines = html_content.split('\n')
+        if len(lines) > 2:
+            # Remove first and last lines (code fences)
+            html_content = '\n'.join(lines[1:-1])
+    
+    return html_content.strip()
+
+# =============================================================================
+# UNIVERSAL TASK GENERATOR CLASS
+# =============================================================================
 
 class UniversalTaskGenerator:
-    """Universal task generator that can handle any kind of request dynamically."""
+    """
+    Universal task generator for dynamic content creation.
+    
+    This class can handle any kind of task request dynamically by analyzing
+    the task brief and generating appropriate web content with file management
+    capabilities. It supports multiple file types and complex task requirements.
+    
+    Features:
+    - Automatic file detection from task briefs
+    - Multi-file project generation
+    - Task type detection and classification
+    - Enhanced HTML generation with Bootstrap styling
+    - SEC API integration for financial tasks
+    - File management interface
+    """
     
     def __init__(self):
+        """Initialize the universal task generator with supported file types."""
         self.supported_extensions = [
-            '.txt', '.json', '.svg', '.css', '.js', '.html', '.md', '.py', '.php', '.xml',
-            '.yaml', '.yml', '.toml', '.ini', '.conf', '.c', '.cpp', '.java', '.rs'
+            '.txt', '.json', '.svg', '.css', '.js', '.html', '.md', '.py', 
+            '.php', '.xml', '.yaml', '.yml', '.toml', '.ini', '.conf', 
+            '.c', '.cpp', '.java', '.rs'
         ]
     
     def _extract_files_from_brief(self, brief: str) -> List[str]:
-        """Extract file names from the brief using regex patterns."""
+        """
+        Extract file names from the task brief using regex patterns.
+        
+        Searches for explicit file mentions, creation requests, and files
+        with supported extensions.
+        
+        Args:
+            brief: Task description text
+            
+        Returns:
+            List of unique file names found in the brief (max 10)
+        """
         files = []
         
-        # Pattern for explicit file mentions with extensions
+        # Multiple regex patterns to catch different file mention styles
         file_patterns = [
             r'\b(\w+\.\w+)\b',  # Basic pattern: filename.extension
             r'(?:file|create|build|generate|make)s?\s+(?:called\s+)?["\']?(\w+\.\w+)["\']?',
@@ -348,8 +554,11 @@ class UniversalTaskGenerator:
         for pattern in file_patterns:
             matches = re.findall(pattern, brief, re.IGNORECASE)
             for match in matches:
+                # Handle tuple matches from regex groups
                 if isinstance(match, tuple):
                     match = match[0] if match[0] else match[1]
+                    
+                # Validate file extension
                 if '.' in match and any(match.lower().endswith(ext) for ext in self.supported_extensions):
                     files.append(match)
         
@@ -359,10 +568,18 @@ class UniversalTaskGenerator:
             if file not in unique_files:
                 unique_files.append(file)
         
-        return unique_files[:10]  # Limit to 10 files max
+        return unique_files[:10]  # Limit to 10 files max for performance
     
     def _has_multiple_file_requirements(self, brief: str) -> bool:
-        """Check if the brief requires multiple files."""
+        """
+        Check if the task brief indicates multiple file requirements.
+        
+        Args:
+            brief: Task description text
+            
+        Returns:
+            True if multiple files are likely required
+        """
         multi_file_indicators = [
             'files', 'create multiple', 'several files', 'different files',
             'also create', 'and a', 'along with', 'additional file',
@@ -371,11 +588,20 @@ class UniversalTaskGenerator:
         return any(indicator in brief.lower() for indicator in multi_file_indicators)
     
     def _detect_task_type(self, task: str, brief: str) -> str:
-        """Detect the task type from task name and brief."""
+        """
+        Detect the task type from task name and brief content.
+        
+        Args:
+            task: Task identifier
+            brief: Task description
+            
+        Returns:
+            Detected task type string
+        """
         task_lower = task.lower()
         brief_lower = brief.lower()
         
-        # Known task types
+        # Known task type patterns
         if 'sharevolume' in task_lower or 'share-volume' in task_lower:
             return 'shareVolume'
         elif 'llmpages' in task_lower or 'llm-pages' in task_lower:
@@ -1058,9 +1284,9 @@ This file was automatically created based on the task requirements.
 
 ## Usage
 
-\`\`\`
+```
 Add usage instructions here
-\`\`\`
+```
 
 ## Created
 
@@ -1427,413 +1653,42 @@ File type: {extension}
 Base name: {basename}
 '''
 
-def generate_site(task: str, brief: str, round_num: int, attachments: Optional[Dict] = None, checks: Optional[List[str]] = None) -> Dict[str, bytes]:
-    """
-    Generate static site files based on task brief.
-    
-    Args:
-        task: Task identifier
-        brief: Task description/brief
-        round_num: Round number (1 or 2)
-        attachments: Optional attachments data
-        checks: Optional list of evaluation checks
-        
-    Returns:
-        Dictionary mapping filenames to file content as bytes
-    """
-    files = {}
-    
-    # Determine task type from task identifier or brief
-    task_lower = task.lower()
-    brief_lower = brief.lower()
-    
-    # Identify known task types
-    task_type = ""
-    if "sum-of-sales" in task_lower or "sum-of-sales" in brief_lower:
-        task_type = "sum-of-sales"
-    elif "markdown-to-html" in task_lower or "markdown-to-html" in brief_lower or "markdown" in task_lower:
-        task_type = "markdown-to-html"
-    elif "github-user" in task_lower or "github-user" in brief_lower:
-        task_type = "github-user-created"
-    elif "captcha" in task_lower or "captcha" in brief_lower:
-        task_type = "captcha-solver"
-    else:
-        # For unknown task types, use the task name or brief as task_type
-        task_type = task_lower.split('-')[0] if '-' in task_lower else brief_lower
-    
-    # Generate HTML using LLM (if available) or fallback to templates
-    html_content = None
-    if openai_client:
-        # Always try LLM first for all task types (including new ones)
-        html_content = generate_content_with_llm(task, brief, task_type, checks)
-    
-    # If LLM generation failed or not available, use hardcoded templates
-    if not html_content:
-        if task_type == "sum-of-sales":
-            # Generate sum-of-sales HTML
-            html_content = generate_sum_of_sales_html()
-    
-    # Set HTML content for all task types
-    if html_content:
-        files["index.html"] = html_content.encode("utf-8")
-    
-    # Add task-specific data files
-    if task_type == "sum-of-sales":
-        csv_content = """item,sales
-Product A,1500
-Product B,2300
-Product C,800
-Product D,1200
-Product E,900"""
-        files["data.csv"] = csv_content.encode("utf-8")
-        
-    elif task_type == "markdown-to-html":
-        # If no HTML from LLM, use template
-        if not html_content:
-            html_content = generate_markdown_to_html()
-            files["index.html"] = html_content.encode("utf-8")
-        
-        # Sample markdown file
-        md_content = """# Sample Markdown
-This is a **sample** markdown file with:
-- Lists
-- *Italic text*
-- `Code blocks`
-
-## Code Example
-```python
-def hello_world():
-    print("Hello, World!")
-```"""
-        files["input.md"] = md_content.encode("utf-8")
-        
-    elif task_type == "github-user-created":
-        # If no HTML from LLM, use template
-        if not html_content:
-            html_content = generate_github_user_created_html(task)
-            files["index.html"] = html_content.encode("utf-8")
-    
-    # Always add README and LICENSE
-    files["README.md"] = generate_readme(task, brief, round_num).encode("utf-8")
-    files["LICENSE"] = generate_license().encode("utf-8")
-    
-    return files
-
-def generate_sum_of_sales_html() -> str:
-    """Generate HTML for sum-of-sales task."""
-    return """<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sales Summary</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-</head>
-<body>
-    <div class="container mt-5">
-        <h1>Sales Summary</h1>
-        <div class="alert alert-info">
-            <h4>Total Sales: $<span id="total-sales">0</span></h4>
-        </div>
-        <table class="table table-striped" id="sales-table">
-            <thead>
-                <tr>
-                    <th>Item</th>
-                    <th>Sales</th>
-                </tr>
-            </thead>
-            <tbody></tbody>
-        </table>
-    </div>
-    
-    <script>
-        async function loadSalesData() {
-            try {
-                const response = await fetch('data.csv');
-                const csvText = await response.text();
-                const lines = csvText.trim().split('\\n');
-                const headers = lines[0].split(',');
-                
-                let totalSales = 0;
-                const tableBody = document.querySelector('#sales-table tbody');
-                
-                for (let i = 1; i < lines.length; i++) {
-                    const row = lines[i].split(',');
-                    const item = row[0];
-                    const sales = parseFloat(row[1]);
-                    
-                    totalSales += sales;
-                    
-                    const tr = document.createElement('tr');
-                    tr.innerHTML = `<td>${item}</td><td>$${sales}</td>`;
-                    tableBody.appendChild(tr);
-                }
-                
-                document.getElementById('total-sales').textContent = totalSales.toFixed(2);
-            } catch (error) {
-                console.error('Error loading sales data:', error);
-            }
-        }
-        
-        loadSalesData();
-    </script>
-</body>
-</html>"""
-
-def generate_markdown_to_html() -> str:
-    """Generate HTML for markdown-to-html converter."""
-    return """<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Markdown to HTML Converter</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.3.1/styles/default.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.3.1/highlight.min.js"></script>
-</head>
-<body>
-    <div class="container mt-5">
-        <h1>Markdown to HTML Converter</h1>
-        <div class="row">
-            <div class="col-md-6">
-                <h3>Markdown Input</h3>
-                <textarea id="markdown-input" class="form-control" rows="15" placeholder="Enter markdown here..."></textarea>
-                <button class="btn btn-primary mt-2" onclick="convertMarkdown()">Convert</button>
-                <button class="btn btn-secondary mt-2" onclick="loadFromFile()">Load from input.md</button>
-            </div>
-            <div class="col-md-6">
-                <h3>HTML Output</h3>
-                <div id="html-output" class="border p-3" style="min-height: 400px; background-color: #f8f9fa;"></div>
-            </div>
-        </div>
-    </div>
-    
-    <script>
-        function convertMarkdown() {
-            const markdownText = document.getElementById('markdown-input').value;
-            const htmlOutput = marked.parse(markdownText);
-            document.getElementById('html-output').innerHTML = htmlOutput;
-            hljs.highlightAll();
-        }
-        
-        async function loadFromFile() {
-            try {
-                const response = await fetch('input.md');
-                const markdownText = await response.text();
-                document.getElementById('markdown-input').value = markdownText;
-                convertMarkdown();
-            } catch (error) {
-                console.error('Error loading markdown file:', error);
-                alert('Could not load input.md file');
-            }
-        }
-        
-        // Check for URL parameter
-        const urlParams = new URLSearchParams(window.location.search);
-        const urlParam = urlParams.get('url');
-        if (urlParam) {
-            fetch(urlParam)
-                .then(response => response.text())
-                .then(text => {
-                    document.getElementById('markdown-input').value = text;
-                    convertMarkdown();
-                })
-                .catch(error => console.error('Error loading from URL:', error));
-        } else {
-            loadFromFile();
-        }
-    </script>
-</body>
-</html>"""
-
-def generate_github_user_created_html(task: str) -> str:
-    """Generate HTML for GitHub user creation date checker."""
-    # Extract seed from task if present
-    seed = "123"  # default
-    if "seed" in task:
-        import re
-        seed_match = re.search(r'seed[=:]?(\d+)', task)
-        if seed_match:
-            seed = seed_match.group(1)
-    
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GitHub User Creation Date</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-</head>
-<body>
-    <div class="container mt-5">
-        <h1>GitHub User Creation Date Checker</h1>
-        <form id="github-user-{seed}" class="mb-4">
-            <div class="mb-3">
-                <label for="username" class="form-label">GitHub Username</label>
-                <input type="text" class="form-control" id="username" placeholder="Enter GitHub username" required>
-            </div>
-            <button type="submit" class="btn btn-primary">Check User</button>
-        </form>
-        
-        <div id="result" class="alert" style="display: none;"></div>
-        <div id="user-info" style="display: none;">
-            <h3>User Information</h3>
-            <div class="card">
-                <div class="card-body">
-                    <h5 class="card-title" id="user-name"></h5>
-                    <p class="card-text">
-                        <strong>Created:</strong> <span id="created-date"></span><br>
-                        <strong>Account Age:</strong> <span id="account-age"></span><br>
-                        <strong>Public Repos:</strong> <span id="public-repos"></span><br>
-                        <strong>Followers:</strong> <span id="followers"></span>
-                    </p>
-                    <img id="avatar" class="rounded-circle" width="100" height="100">
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <script>
-        document.getElementById('github-user-{seed}').addEventListener('submit', async function(e) {{
-            e.preventDefault();
-            
-            const username = document.getElementById('username').value.trim();
-            const resultDiv = document.getElementById('result');
-            const userInfoDiv = document.getElementById('user-info');
-            
-            if (!username) {{
-                showResult('Please enter a username', 'danger');
-                return;
-            }}
-            
-            try {{
-                const response = await fetch(`https://api.github.com/users/${{username}}`);
-                
-                if (!response.ok) {{
-                    if (response.status === 404) {{
-                        showResult('User not found', 'warning');
-                    }} else {{
-                        showResult('Error fetching user data', 'danger');
-                    }}
-                    userInfoDiv.style.display = 'none';
-                    return;
-                }}
-                
-                const userData = await response.json();
-                
-                // Calculate account age
-                const createdDate = new Date(userData.created_at);
-                const now = new Date();
-                const ageInDays = Math.floor((now - createdDate) / (1000 * 60 * 60 * 24));
-                const ageInYears = Math.floor(ageInDays / 365);
-                const remainingDays = ageInDays % 365;
-                
-                // Display user information
-                document.getElementById('user-name').textContent = userData.name || userData.login;
-                document.getElementById('created-date').textContent = createdDate.toLocaleDateString();
-                document.getElementById('account-age').textContent = `${{ageInYears}} years, ${{remainingDays}} days`;
-                document.getElementById('public-repos').textContent = userData.public_repos;
-                document.getElementById('followers').textContent = userData.followers;
-                document.getElementById('avatar').src = userData.avatar_url;
-                
-                showResult('User found successfully!', 'success');
-                userInfoDiv.style.display = 'block';
-                
-            }} catch (error) {{
-                console.error('Error:', error);
-                showResult('Network error occurred', 'danger');
-                userInfoDiv.style.display = 'none';
-            }}
-        }});
-        
-        function showResult(message, type) {{
-            const resultDiv = document.getElementById('result');
-            resultDiv.className = `alert alert-${{type}}`;
-            resultDiv.textContent = message;
-            resultDiv.style.display = 'block';
-        }}
-    </script>
-</body>
-</html>"""
-
-def generate_readme(task: str, brief: str, round_num: int) -> str:
-    """Generate README.md content."""
-    return f"""# TDS Project 1 - {task}
-
-## Description
-This project implements a {brief} application as part of TDS Project 1, Round {round_num}.
-
-## Features
-- Static HTML/JavaScript implementation
-- Bootstrap 5 for styling
-- Responsive design
-- GitHub Pages deployment
-
-## Usage
-Simply open `index.html` in a web browser or visit the GitHub Pages URL.
-
-## Generated on
-{time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}
-
-## Task Details
-- Task: {task}
-- Brief: {brief}
-- Round: {round_num}
-"""
-
-def generate_license() -> str:
-    """Generate MIT license content."""
-    return f"""MIT License
-
-Copyright (c) {time.strftime('%Y')} TDS Project 1
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-"""
+# =============================================================================
+# BACKGROUND TASK PROCESSING
+# =============================================================================
 
 def post_evaluation_with_backoff(url: str, data: Dict[str, Any], max_retries: int = 5) -> bool:
     """
-    Post evaluation data with exponential backoff.
+    Post evaluation data with exponential backoff retry strategy.
+    
+    Implements robust error handling and retry logic for evaluation submissions
+    to handle temporary network issues or server unavailability.
     
     Args:
-        url: Evaluation URL
-        data: Data to post
-        max_retries: Maximum number of retry attempts
+        url: Evaluation endpoint URL
+        data: Evaluation data to POST
+        max_retries: Maximum number of retry attempts (default: 5)
         
     Returns:
-        True if successful, False otherwise
+        True if successful, False if all retries failed
     """
     for attempt in range(max_retries):
         try:
             response = requests.post(url, json=data, timeout=30)
+            
             if response.status_code in [200, 201]:
                 print(f"✅ Evaluation posted successfully to {url}")
                 return True
             
-            print(f"⚠️ Evaluation post attempt {attempt + 1} failed: {response.status_code}")
+            print(f"⚠️ Evaluation post attempt {attempt + 1} failed: HTTP {response.status_code}")
             
         except requests.RequestException as e:
             print(f"⚠️ Evaluation post attempt {attempt + 1} failed: {e}")
         
+        # Exponential backoff with jitter
         if attempt < max_retries - 1:
-            wait_time = min(2 ** attempt, 16)  # Exponential backoff, max 16s
+            wait_time = min(2 ** attempt, 16)  # Max 16 seconds
+            print(f"🕐 Waiting {wait_time}s before retry...")
             time.sleep(wait_time)
     
     print(f"❌ Failed to post evaluation after {max_retries} attempts")
@@ -1851,39 +1706,64 @@ def process_task_background(
 ):
     """
     Process the task in the background and post evaluation when complete.
+    
     This function runs asynchronously after returning 200 OK to the client.
+    It handles the complete workflow of repository creation, file generation,
+    and evaluation submission.
+    
+    Workflow:
+    1. Generate repository name
+    2. Create or get GitHub repository
+    3. Generate site files using universal generator
+    4. Upload all files to repository
+    5. Enable GitHub Pages
+    6. Post evaluation results
+    
+    Args:
+        email: User email address
+        task: Task identifier
+        round_num: Round number
+        nonce: Unique request identifier
+        evaluation_url: URL to POST evaluation results
+        brief: Task description
+        attachments: List of file attachments
+        checks: List of evaluation checks
     """
     try:
-        print(f"🚀 Background task started for {task}, Round {round_num}")
+        print(f"🚀 Background processing started: {task} (Round {round_num})")
         
-        # Generate repository name
+        # Step 1: Generate repository name
         repo_name = f"tds-project1-{task}"
         
-        # Create or get repository
+        # Step 2: Create or get repository
         repo_data = create_or_get_repo(repo_name)
         repo_url = repo_data["html_url"]
-        print(f"📦 Repository: {repo_url}")
+        print(f"📦 Repository ready: {repo_url}")
         
-        # Generate site files using universal generator
+        # Step 3: Generate site files using universal generator
         generator = UniversalTaskGenerator()
         files = generator.generate_site_universal(task, brief, round_num, attachments, checks)
         print(f"📝 Generated {len(files)} files")
         
-        # Upload files
+        # Step 4: Upload files to repository
         latest_commit_sha = None
         for filename, content in files.items():
-            commit_data = put_file(repo_name, filename, content, f"Round {round_num}: Add {filename}")
+            commit_data = put_file(
+                repo_name, 
+                filename, 
+                content, 
+                f"Round {round_num}: Add {filename}"
+            )
             latest_commit_sha = commit_data["commit"]["sha"]
             print(f"✅ Uploaded: {filename}")
         
-        # Enable GitHub Pages (only needed for Round 1, but safe to call multiple times)
+        # Step 5: Enable GitHub Pages
         enable_pages(repo_name)
-        print(f"🌐 GitHub Pages enabled")
+        print(f"🌐 GitHub Pages configured")
         
-        # Construct Pages URL
+        # Step 6: Construct Pages URL and prepare evaluation
         pages_url = f"https://{GITHUB_OWNER}.github.io/{repo_name}/"
         
-        # Prepare evaluation response
         evaluation_data = {
             "email": email,
             "task": task,
@@ -1895,18 +1775,19 @@ def process_task_background(
             "status": "success"
         }
         
-        # Post evaluation with backoff
-        print(f"📤 Posting evaluation to: {evaluation_url}")
+        # Step 7: Post evaluation with retry logic
+        print(f"📤 Submitting evaluation to: {evaluation_url}")
         success = post_evaluation_with_backoff(evaluation_url, evaluation_data)
         
         if success:
             print(f"✅ Task {task} completed successfully!")
         else:
-            print(f"❌ Task {task} completed but evaluation post failed")
+            print(f"❌ Task {task} completed but evaluation submission failed")
             
     except Exception as e:
         print(f"❌ Background task failed for {task}: {str(e)}")
-        # Try to post error to evaluation URL
+        
+        # Attempt to report error to evaluation URL
         error_data = {
             "email": email,
             "task": task,
@@ -1915,34 +1796,52 @@ def process_task_background(
             "status": "error",
             "error": str(e)
         }
+        
         try:
             requests.post(evaluation_url, json=error_data, timeout=30)
-        except:
-            pass
+            print("📤 Error reported to evaluation URL")
+        except Exception as eval_error:
+            print(f"⚠️ Failed to report error to evaluation URL: {eval_error}")
+
+# =============================================================================
+# MAIN API ENDPOINTS
+# =============================================================================
 
 @app.post("/handle_task")
 async def handle_task(payload: TaskRequest, background_tasks: BackgroundTasks):
     """
-    Main endpoint to handle TDS server requests.
+    Main endpoint to handle TDS server deployment requests.
     
-    This endpoint immediately returns 200 OK to acknowledge receipt,
-    then processes the task in the background and posts evaluation
-    results to the evaluation_url within 10 minutes.
+    This endpoint implements an asynchronous workflow:
+    1. Immediately validates the request and returns 200 OK
+    2. Processes the task in the background
+    3. Posts evaluation results to the provided callback URL
     
-    Processes both Round 1 and Round 2 tasks:
-    - Verifies APP_SECRET
-    - Returns 200 OK immediately
-    - Creates/updates GitHub repository (background)
-    - Generates and uploads files (background)
-    - Enables GitHub Pages (background)
-    - Posts evaluation response to evaluation_url (background)
+    Supports both Round 1 and Round 2 tasks with the following features:
+    - Secret verification for security
+    - Universal task type support
+    - LLM-powered content generation
+    - Automated GitHub repository management
+    - GitHub Pages deployment
+    - Comprehensive error handling and logging
+    
+    Args:
+        payload: TaskRequest containing all task details
+        background_tasks: FastAPI background task manager
+        
+    Returns:
+        Immediate acknowledgment response (200 OK)
+        
+    Raises:
+        HTTPException: For authentication failures or validation errors
     """
     try:
-        # Verify secret
+        # Step 1: Validate authentication
         if payload.secret != APP_SECRET:
+            print(f"❌ Authentication failed for {payload.email}")
             raise HTTPException(status_code=401, detail="Invalid secret")
         
-        # Extract task data
+        # Step 2: Extract and validate task data
         email = payload.email
         task = payload.task
         round_num = payload.round
@@ -1952,7 +1851,13 @@ async def handle_task(payload: TaskRequest, background_tasks: BackgroundTasks):
         attachments = payload.attachments or []
         checks = payload.checks or []
         
-        # Add background task to process the request
+        # Step 3: Log request details
+        print(f"📨 Request received: {task} (Round {round_num}) from {email}")
+        print(f"📋 Brief: {brief[:100]}{'...' if len(brief) > 100 else ''}")
+        print(f"📎 Attachments: {len(attachments)}")
+        print(f"✅ Checks: {len(checks)}")
+        
+        # Step 4: Schedule background processing
         background_tasks.add_task(
             process_task_background,
             email=email,
@@ -1965,8 +1870,8 @@ async def handle_task(payload: TaskRequest, background_tasks: BackgroundTasks):
             checks=checks
         )
         
-        # Return 200 OK immediately to acknowledge receipt
-        print(f"✅ Request received for {task}, Round {round_num}. Processing in background...")
+        # Step 5: Return immediate acknowledgment
+        print(f"✅ Task {task} accepted - processing in background")
         return JSONResponse(
             status_code=200,
             content={
@@ -1974,22 +1879,37 @@ async def handle_task(payload: TaskRequest, background_tasks: BackgroundTasks):
                 "message": "Task accepted and is being processed",
                 "task": task,
                 "round": round_num,
-                "nonce": nonce
+                "nonce": nonce,
+                "timestamp": time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())
             }
         )
         
     except HTTPException:
+        # Re-raise HTTP exceptions (like 401 Unauthorized)
         raise
     except Exception as e:
-        error_detail = f"Internal server error: {str(e)}"
+        # Handle unexpected errors
+        print(f"❌ Unexpected error in handle_task: {str(e)}")
         return JSONResponse(
             status_code=500,
-            content={"error": error_detail}
+            content={
+                "error": "Internal server error",
+                "detail": str(e),
+                "timestamp": time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())
+            }
         )
 
 @app.get("/")
 async def root():
-    """API documentation landing page."""
+    """
+    API documentation landing page.
+    
+    Provides comprehensive information about the TDS Project 1 API,
+    including endpoints, usage instructions, and supported task types.
+    
+    Returns:
+        HTML response with interactive documentation
+    """
     html_content = """
     <!DOCTYPE html>
     <html lang="en">
@@ -1998,77 +1918,188 @@ async def root():
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>TDS Project 1 - LLM Code Deployment API</title>
         <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+        <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+        <style>
+            body { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; }
+            .main-container { 
+                background: rgba(255, 255, 255, 0.95); 
+                border-radius: 15px; 
+                margin: 20px 0; 
+                box-shadow: 0 20px 40px rgba(0,0,0,0.1); 
+            }
+            .header-section { 
+                background: linear-gradient(45deg, #007bff, #0056b3); 
+                color: white; 
+                border-radius: 15px 15px 0 0; 
+                padding: 30px; 
+                text-align: center; 
+            }
+            .content-section { padding: 30px; }
+            .feature-card { 
+                background: white; 
+                border-radius: 10px; 
+                padding: 20px; 
+                margin-bottom: 20px; 
+                box-shadow: 0 5px 15px rgba(0,0,0,0.08); 
+                transition: transform 0.3s ease; 
+            }
+            .feature-card:hover { transform: translateY(-5px); }
+            .status-badge { 
+                background: #28a745; 
+                color: white; 
+                padding: 5px 15px; 
+                border-radius: 20px; 
+                font-weight: 500; 
+            }
+        </style>
     </head>
     <body>
-        <div class="container mt-5">
-            <h1>🚀 TDS Project 1 - LLM Code Deployment API</h1>
-            <p class="lead">FastAPI application for automated GitHub repository creation and deployment</p>
-            
-            <div class="alert alert-success">
-                <strong>Status:</strong> Running ✅
-            </div>
-            
-            <h2>📡 Endpoints</h2>
-            <ul class="list-group mb-4">
-                <li class="list-group-item">
-                    <strong>POST /handle_task</strong> - Main endpoint for handling deployment tasks
-                </li>
-                <li class="list-group-item">
-                    <strong>GET /health</strong> - Health check endpoint
-                </li>
-                <li class="list-group-item">
-                    <strong>GET /docs</strong> - Interactive API documentation (Swagger UI)
-                </li>
-                <li class="list-group-item">
-                    <strong>GET /redoc</strong> - Alternative API documentation (ReDoc)
-                </li>
-            </ul>
-            
-            <h2>🔧 Usage</h2>
-            <p>Send a POST request to <code>/handle_task</code> with the following JSON payload:</p>
-            <pre class="bg-light p-3"><code>{
-  "email": "your-email@example.com",
+        <div class="container">
+            <div class="main-container">
+                <div class="header-section">
+                    <h1><i class="fas fa-rocket me-3"></i>TDS Project 1 - LLM Code Deployment API</h1>
+                    <p class="lead mb-3">Automated GitHub repository creation and deployment system</p>
+                    <span class="status-badge"><i class="fas fa-check-circle me-2"></i>Service Running</span>
+                </div>
+                
+                <div class="content-section">
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <div class="feature-card">
+                                <h5><i class="fas fa-cogs me-2 text-primary"></i>Key Features</h5>
+                                <ul class="list-unstyled">
+                                    <li><i class="fas fa-check text-success me-2"></i>LLM-powered content generation</li>
+                                    <li><i class="fas fa-check text-success me-2"></i>Universal task type support</li>
+                                    <li><i class="fas fa-check text-success me-2"></i>Automated GitHub integration</li>
+                                    <li><i class="fas fa-check text-success me-2"></i>GitHub Pages deployment</li>
+                                    <li><i class="fas fa-check text-success me-2"></i>Background processing</li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="feature-card">
+                                <h5><i class="fas fa-list me-2 text-success"></i>Supported Tasks</h5>
+                                <ul class="list-unstyled">
+                                    <li><i class="fas fa-chart-bar text-info me-2"></i>Sales summaries</li>
+                                    <li><i class="fas fa-markdown text-warning me-2"></i>Markdown converters</li>
+                                    <li><i class="fas fa-user text-primary me-2"></i>GitHub user tools</li>
+                                    <li><i class="fas fa-shield-alt text-secondary me-2"></i>CAPTCHA solvers</li>
+                                    <li><i class="fas fa-star text-warning me-2"></i>Custom applications</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <h2><i class="fas fa-network-wired me-2"></i>API Endpoints</h2>
+                    <div class="feature-card">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6><span class="badge bg-success">POST</span> /handle_task</h6>
+                                <p class="text-muted">Main endpoint for task processing</p>
+                            </div>
+                            <div class="col-md-6">
+                                <h6><span class="badge bg-info">GET</span> /health</h6>
+                                <p class="text-muted">Service health check</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <h2><i class="fas fa-book me-2"></i>Documentation</h2>
+                    <div class="btn-group mb-4" role="group">
+                        <a href="/docs" class="btn btn-primary">
+                            <i class="fas fa-code me-2"></i>Swagger UI
+                        </a>
+                        <a href="/redoc" class="btn btn-outline-primary">
+                            <i class="fas fa-file-alt me-2"></i>ReDoc
+                        </a>
+                        <a href="/health" class="btn btn-success">
+                            <i class="fas fa-heartbeat me-2"></i>Health Check
+                        </a>
+                    </div>
+                    
+                    <h2><i class="fas fa-terminal me-2"></i>Usage Example</h2>
+                    <div class="feature-card">
+                        <pre class="bg-light p-3 rounded"><code>{
+  "email": "user@example.com",
   "secret": "your-app-secret",
-  "task": "task-name",
+  "task": "sum-of-sales-001",
   "round": 1,
-  "nonce": "unique-nonce",
-  "brief": "task description",
-  "evaluation_url": "https://evaluation-endpoint.com",
-  "attachments": []
+  "nonce": "unique-request-id",
+  "brief": "Create a sales summary dashboard",
+  "evaluation_url": "https://evaluation.endpoint.com/callback",
+  "attachments": [],
+  "checks": []
 }</code></pre>
-            
-            <h2>📚 Documentation</h2>
-            <div class="btn-group mb-4" role="group">
-                <a href="/docs" class="btn btn-primary">Swagger UI</a>
-                <a href="/redoc" class="btn btn-secondary">ReDoc</a>
-                <a href="/health" class="btn btn-info">Health Check</a>
+                    </div>
+                    
+                    <footer class="text-center text-muted mt-5">
+                        <p><i class="fas fa-graduation-cap me-2"></i>TDS Project 1 | FastAPI + GitHub API | 2025</p>
+                    </footer>
+                </div>
             </div>
-            
-            <h2>✨ Supported Tasks</h2>
-            <ul>
-                <li><strong>sum-of-sales</strong> - Generate sales summary with Bootstrap table</li>
-                <li><strong>markdown-to-html</strong> - Markdown renderer with syntax highlighting</li>
-                <li><strong>github-user-created</strong> - GitHub user account creation date checker</li>
-            </ul>
-            
-            <footer class="mt-5 text-muted">
-                <p>TDS Project 1 | FastAPI + GitHub API | 2025</p>
-            </footer>
         </div>
     </body>
     </html>
     """
     return HTMLResponse(content=html_content)
 
+
 @app.get("/health")
 async def health():
-    """Detailed health check."""
+    """
+    Comprehensive health check endpoint.
+    
+    Provides detailed information about service status, configuration,
+    and availability of required components.
+    
+    Returns:
+        JSON response with health status and configuration details
+    """
     return {
         "status": "healthy",
-        "github_owner": GITHUB_OWNER,
-        "has_github_token": bool(GITHUB_TOKEN),
-        "has_app_secret": bool(APP_SECRET)
+        "service": "TDS Project 1 - LLM Code Deployment",
+        "timestamp": time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime()),
+        "configuration": {
+            "github_owner": GITHUB_OWNER,
+            "has_github_token": bool(GITHUB_TOKEN),
+            "has_app_secret": bool(APP_SECRET),
+            "llm_enabled": bool(openai_client),
+            "aipipe_configured": bool(AIPIPE_TOKEN)
+        },
+        "features": {
+            "universal_task_generator": True,
+            "github_integration": True,
+            "github_pages": True,
+            "background_processing": True,
+            "evaluation_callbacks": True
+        }
     }
 
+# =============================================================================
+# APPLICATION ENTRY POINT
+# =============================================================================
+
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=7860)
+    """
+    Application entry point for development server.
+    
+    Starts the FastAPI application using Uvicorn ASGI server on
+    host 0.0.0.0 (all interfaces) and port 7860.
+    
+    For production deployment, use a proper ASGI server setup
+    with appropriate configuration for scaling and security.
+    """
+    print("=" * 60)
+    print("🚀 Starting TDS Project 1 - LLM Code Deployment API")
+    print("=" * 60)
+    print(f"🌐 Server will be available at: http://0.0.0.0:7860")
+    print(f"📖 API documentation: http://0.0.0.0:7860/docs")
+    print(f"❤️ Health check: http://0.0.0.0:7860/health")
+    print("=" * 60)
+    
+    uvicorn.run(
+        app, 
+        host="0.0.0.0", 
+        port=7860,
+        log_level="info"
+    )
